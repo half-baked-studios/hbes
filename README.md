@@ -18,7 +18,27 @@ and writes down what it did.
 - `--dry-run` to see exactly what it would do, changing nothing
 - writes an `hbes.lock` so you know what got installed
 
+## quick start
+
+one line, like brew — clones into `~/.hbes` and drops you in the picker:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/half-baked-studios/hbes/main/bootstrap.sh)"
+```
+
+want it unattended? pipe it and pass flags after `--`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/half-baked-studios/hbes/main/bootstrap.sh | bash -s -- --profile standard
+curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run
+```
+
+It uses git if you have it, a tarball if you don't. Override `HBES_DIR` to
+clone somewhere other than `~/.hbes`.
+
 ## usage
+
+…or clone it yourself and drive `install.sh` directly:
 
 ```bash
 git clone https://github.com/half-baked-studios/hbes

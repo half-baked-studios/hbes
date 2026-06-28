@@ -1,4 +1,4 @@
-# hbes — half baked env
+# hbes — half baked env setup
 
 works on my machine. ship it.
 
@@ -25,8 +25,8 @@ git clone https://github.com/half-baked-studios/hbes
 cd hbes
 chmod +x install.sh
 
-./install.sh                 # interactive — recommendations drive the defaults
-./install.sh --tui           # checkbox selector (python + questionary)
+./install.sh                 # interactive — checkbox TUI if available, else y/n
+./install.sh --tui           # force the checkbox selector (python + questionary)
 ./install.sh --recommend     # probe the box, print suggestions, install nothing
 ./install.sh --all           # everything, no prompts
 ./install.sh --base --python # just the modules you name
@@ -82,12 +82,19 @@ remove = ["vim"]
 structure with your packages. (`--config` parses TOML with python3 — already
 there on any Debian box, and installed by the `python` module anyway.)
 
-### TUI
+### interactive (TUI by default)
 
-`./install.sh --tui` opens a checkbox selector (needs `questionary`:
-`pipx install questionary`). No questionary? It falls back to a plain numbered
-prompt, so it still works on a fresh box. Either way it just hands your picks
-back to `install.sh`.
+Plain `./install.sh` picks the nicest selector your box can run, with the
+**recommended modules pre-selected** either way:
+
+1. `questionary` available → a checkbox TUI (space toggles, enter confirms)
+2. otherwise → the recommendation-driven `y/n` prompts
+3. not a terminal at all (CI, piped) → it tells you to use `--all` / `--profile`
+   / `--config` instead of hanging
+
+`--tui` forces the checkbox path (`pipx install questionary` for the nice UI;
+there's a plain numbered fallback if it's missing). Either way the selector just
+hands your picks back to `install.sh`.
 
 ## modules
 

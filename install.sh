@@ -6,8 +6,8 @@
 # Bootstrap a Debian dev box. Pick what you want, or let it recommend.
 #
 # usage:
-#   ./install.sh                  interactive (recommendation-driven defaults)
-#   ./install.sh --tui            interactive checkbox selector (python+questionary)
+#   ./install.sh                  interactive — checkbox TUI if available, else y/n
+#   ./install.sh --tui            force the checkbox selector (python+questionary)
 #   ./install.sh --recommend      probe the box, print suggestions, install nothing
 #   ./install.sh --all            every module, no prompts
 #   ./install.sh --base --python  pick modules by name
@@ -225,6 +225,15 @@ print_recommendations() {
   done
 }
 
+# echo the space-separated list of modules recommended for this box.
+recommended_list() {
+  local m out=()
+  for m in "${MODULES[@]}"; do
+    if recommend_"$m" >/dev/null; then out+=("$m"); fi
+  done
+  echo "${out[*]:-}"
+}
+
 # print modules and profiles, then exit.
 list_modules() {
   step "modules"
@@ -245,8 +254,11 @@ main() {
   require_debian
   need_sudo
 
-  printf '%s\n' "${c_bold}half baked env${c_reset} ${c_dim}v${HBES_VERSION}${c_reset}"
-  printf '%sworks on my machine. ship it.%s\n' "$c_dim" "$c_reset"
+  # banner — suppressed on re-entry from the TUI so it only shows once
+  if [ -z "${HBES_QUIET_BANNER:-}" ]; then
+    printf '%s\n' "${c_bold}half baked env${c_reset} ${c_dim}v${HBES_VERSION}${c_reset}"
+    printf '%sworks on my machine. ship it.%s\n' "$c_dim" "$c_reset"
+  fi
 
   local selected=() m reason def config="" want_tui=0
   HBES_ALL=0
@@ -283,14 +295,31 @@ main() {
     log "config: ${config} -> [${selected[*]}]"
   fi
 
-  # --tui: hand off to the questionary selector, which re-invokes us with flags.
+  # launch_tui — hand off to the questionary selector with recommended modules
+  # pre-checked. it re-invokes install.sh with the chosen module flags.
+  launch_tui() {
+    exec python3 "${SCRIPT_DIR}/tui.py" \
+      --preselect "$(recommended_list)" \
+      $( [ "$DRY_RUN" -eq 1 ] && echo --dry-run )
+  }
+
+  # --tui: explicit request for the checkbox selector.
   if [ "$want_tui" -eq 1 ]; then
     has python3 || { err "--tui needs python3"; exit 1; }
-    exec python3 "${SCRIPT_DIR}/tui.py" $( [ "$DRY_RUN" -eq 1 ] && echo --dry-run )
+    launch_tui
   fi
 
-  # nothing chosen on the command line -> interactive, recommendation-driven.
+  # nothing chosen on the command line -> interactive.
   if [ "${#selected[@]}" -eq 0 ] && [ -z "$config" ]; then
+    if [ ! -t 0 ]; then
+      err "no modules given and this isn't an interactive terminal."
+      err "use --all, --profile <name>, --config FILE, or --recommend."
+      exit 1
+    fi
+    # prefer the checkbox TUI; fall back to recommendation-driven y/n prompts.
+    if has python3 && python3 -c 'import questionary' >/dev/null 2>&1; then
+      launch_tui
+    fi
     print_recommendations
     echo
     for m in "${MODULES[@]}"; do

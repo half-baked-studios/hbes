@@ -1,6 +1,12 @@
 # hbes — half baked env setup
 
 [![ci](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml/badge.svg)](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml)
+&nbsp;
+![Debian/Ubuntu](https://img.shields.io/badge/Debian%2FUbuntu-apt-A81D33?logo=debian&logoColor=white)
+![Fedora/RHEL](https://img.shields.io/badge/Fedora%2FRHEL-dnf-294172?logo=fedora&logoColor=white)
+![Arch](https://img.shields.io/badge/Arch-pacman-1793D1?logo=archlinux&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-brew-000000?logo=apple&logoColor=white)
+![Windows/WSL](https://img.shields.io/badge/Windows-WSL-0078D6?logo=linux&logoColor=white)
 
 works on my machine. ship it.
 
@@ -65,7 +71,7 @@ Piping a script into a shell makes you nervous? Good instinct — audit it:
 
 ```bash
 curl -fsSL .../bootstrap.sh | less                          # read it first
-HBES_REF=v0.3.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
+HBES_REF=v0.4.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
 curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run      # preview, install nothing
 ```
 
@@ -216,7 +222,7 @@ done so far:
 still half baked:
 
 - [ ] more `*_down` uninstallers (right now only dotfiles fully reverts)
-- [ ] tagged releases so `HBES_REF=vX.Y.Z` pins something real
+- [x] tagged releases so `HBES_REF=vX.Y.Z` pins something real (`v0.4.0`)
 - [ ] per-platform package overrides in `hbes.toml` (today overrides are global)
 
 ---

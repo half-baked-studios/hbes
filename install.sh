@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-HBES_VERSION="0.3.0"
+HBES_VERSION="0.4.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 LOCKFILE="${SCRIPT_DIR}/hbes.lock"

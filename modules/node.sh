@@ -14,7 +14,7 @@ hbes_node() {
       || { warn "fnm install failed (offline?)."; return 0; }
   fi
 
-  export PATH="${HOME}/.local/share/fnm:${PATH}"
+  export PATH="${HOME}/.local/share/fnm:${HOME}/.fnm:${PATH}"
   command -v fnm >/dev/null 2>&1 || { warn "fnm not on PATH yet — open a new shell."; return 0; }
 
   eval "$(fnm env)" 2>/dev/null || true

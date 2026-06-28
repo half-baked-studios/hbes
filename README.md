@@ -4,22 +4,38 @@
 
 works on my machine. ship it.
 
-A dead-simple bootstrap for a Debian dev box. Picks the tools you
-actually reinstall every time — gcc, make, pip, the usual — and gets
-out of the way. No distro, no magic. Just bash that runs apt for you
-and writes down what it did.
+A dead-simple bootstrap for a dev box — Debian/Ubuntu, RHEL/Fedora, Arch, or
+macOS. Picks the tools you actually reinstall every time — gcc, make, pip, the
+usual — figures out your package manager (apt/dnf/pacman/brew), and gets out of
+the way. Just bash that runs the installs for you and writes down what it did.
 
 ## what it does
 
-- installs the non-negotiables (`build-essential`, git, curl)
+- works across **apt / dnf / pacman / brew** — same modules, names mapped per platform
+- installs the non-negotiables (compiler, git, curl)
 - optional toolchain extras (clang, cmake, ninja, gdb)
 - optional python tooling (pip, venv, pipx) — PEP 668 aware
-- language toolchains: rust (rustup), go (apt), node (fnm + LTS)
+- language toolchains: rust (rustup), go (system pkg), node (fnm + LTS)
 - optional embedded/cross tools (arm gcc, openocd, dtc)
 - optional dotfiles (shell aliases + vim defaults, reversible)
 - probes the box and **recommends** what's actually worth installing
 - `--dry-run` previews everything; `--status` / `--uninstall` use the lockfile
 - writes an `hbes.lock` recording what got installed (and when)
+
+## platforms
+
+hbes detects your package manager and maps each module's package list to it
+(so `build-essential` becomes `base-devel` on Arch, the Xcode CLT on macOS, etc):
+
+| platform                | manager            | platform notes                                            |
+|-------------------------|--------------------|-----------------------------------------------------------|
+| Debian / Ubuntu         | `apt`              | the original target                                       |
+| RHEL / Fedora / CentOS  | `dnf` (or `yum`)   | SELinux-aware — only writes to `$HOME`, runs `restorecon` on files it touches |
+| Arch                    | `pacman`           | also bootstraps **yay** (AUR helper) on first install     |
+| macOS                   | `brew`             | checks Homebrew is present, points you at the installer if not |
+
+Same flags everywhere. Each run prints the detected `platform <distro> · <pm>`
+up top so you know what it's about to drive.
 
 ## quick start
 
@@ -73,7 +89,7 @@ chmod +x install.sh
 ./install.sh --list          # list modules and profiles
 ```
 
-`--dry-run` composes with everything — it prints every `apt-get` and every
+`--dry-run` composes with everything — it prints every package install and every
 dotfile write instead of running them, and never touches the lockfile.
 
 ### recommend
@@ -115,9 +131,9 @@ remove = ["valgrind"]
 remove = ["vim"]
 ```
 
-`add`/`remove` adjust a module's apt package list, so you get the module's
+`add`/`remove` adjust a module's package list, so you get the module's
 structure with your packages. (`--config` parses TOML with python3 — already
-there on any Debian box, and installed by the `python` module anyway.)
+there on most systems, and installed by the `python` module anyway.)
 
 ### interactive (TUI by default)
 
@@ -141,7 +157,7 @@ hands your picks back to `install.sh`.
 | `toolchain` | clang, lld, cmake, ninja, pkg-config, gdb     |
 | `python`    | python3, pip, venv, dev headers, pipx         |
 | `rust`      | rustup + stable toolchain (per-user, no apt)  |
-| `go`        | golang-go, gopls (apt)                         |
+| `go`        | go toolchain + gopls (system pkg)             |
 | `node`      | fnm + node LTS (per-user, no apt)             |
 | `embedded`  | arm-none-eabi gcc, aarch64 cross, openocd, dtc|
 | `dotfiles`  | tmux/fzf/rg/bat + managed `~/.bashrc`, `~/.vimrc`|
@@ -169,15 +185,15 @@ cumulative, newest write wins. That record drives:
 - `--status` — list what hbes installed here, and when
 - `--skip-installed` — re-run a profile and skip what's already recorded
 - `--uninstall [modules]` — revert named modules, or everything in the lockfile.
-  Modules undo what they *wrote* (dotfiles strips its blocks); apt packages are
-  left in place on purpose — `apt remove` them yourself if you want them gone.
+  Modules undo what they *wrote* (dotfiles strips its blocks); installed packages
+  are left in place on purpose — remove them with your package manager if you want.
 
 ## what this is not
 
 - not a distro
-- not idempotent-guaranteed (re-running is usually fine, apt handles it)
-- not tested on every Debian release — but CI does run the real installer on
-  Ubuntu each push (shellcheck + a genuine apt install), so it's not *un*tested
+- not idempotent-guaranteed (re-running is usually fine, the package manager handles it)
+- not tested on every release — but CI runs the real installer on Ubuntu,
+  Fedora, Arch, and macOS each push (shellcheck + a genuine install on each)
 
 ## roadmap (half baked, naturally)
 
@@ -188,13 +204,14 @@ done so far:
 - [x] dotfiles module, `dry-run`, `--status` / `--skip-installed` / `--uninstall`
 - [x] rust / go / node modules
 - [x] the brew-style `curl | bash` bootstrap
-- [x] CI: shellcheck + a real apt install on Ubuntu
+- [x] multi-platform: apt / dnf / pacman / brew (SELinux-aware, bootstraps yay)
+- [x] CI: shellcheck + a real install on Ubuntu, Fedora, Arch, and macOS
 
 still half baked:
 
 - [ ] more `*_down` uninstallers (right now only dotfiles fully reverts)
 - [ ] tagged releases so `HBES_REF=vX.Y.Z` pins something real
-- [ ] macOS/Homebrew backend (it's apt-only today)
+- [ ] per-platform package overrides in `hbes.toml` (today overrides are global)
 
 ---
 

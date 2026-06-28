@@ -3,7 +3,8 @@
 # hbes — Half Baked Env
 # works on my machine. ship it.
 #
-# Bootstrap a Debian dev box. Pick what you want, or let it recommend.
+# Bootstrap a dev box on Debian/Ubuntu, RHEL/Fedora, Arch, or macOS.
+# Detects the package manager (apt/dnf/pacman/brew). Pick modules, or recommend.
 #
 # usage:
 #   ./install.sh                  interactive — checkbox TUI if available, else y/n
@@ -44,19 +45,63 @@ warn() { printf '%s[hbes]%s %s\n' "$c_ylw" "$c_reset" "$*"; }
 err()  { printf '%s[hbes]%s %s\n' "$c_red" "$c_reset" "$*" >&2; }
 step() { printf '\n%s==>%s %s%s%s\n' "$c_grn" "$c_reset" "$c_bold" "$*" "$c_reset"; }
 
-# ---- guards -----------------------------------------------------------------
-require_debian() {
-  if ! command -v apt-get >/dev/null 2>&1; then
-    err "this is built for Debian/Ubuntu (apt). aborting."
-    exit 1
-  fi
+# ---- platform detection -----------------------------------------------------
+# sets HBES_OS (linux/macos), HBES_DISTRO (debian/rhel/arch/macos),
+# HBES_PM (apt/dnf/yum/pacman/brew), HBES_SELINUX (1 if enforcing/permissive).
+detect_platform() {
+  HBES_SELINUX=0
+  case "$(uname -s)" in
+    Darwin)
+      HBES_DISTRO=macos; HBES_PM=brew
+      ;;
+    Linux)
+      local id="" like=""
+      if [ -r /etc/os-release ]; then
+        id="$(awk -F= '$1=="ID"{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
+        like="$(awk -F= '$1=="ID_LIKE"{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
+      fi
+      case " $id $like " in
+        *" debian "*|*" ubuntu "*)            HBES_DISTRO=debian; HBES_PM=apt ;;
+        *" rhel "*|*" fedora "*|*" centos "*) HBES_DISTRO=rhel;   HBES_PM=dnf ;;
+        *" arch "*)                           HBES_DISTRO=arch;   HBES_PM=pacman ;;
+        *)
+          # unknown distro — guess from whatever package manager is present
+          if   command -v apt-get >/dev/null 2>&1; then HBES_DISTRO=debian; HBES_PM=apt
+          elif command -v dnf     >/dev/null 2>&1; then HBES_DISTRO=rhel;   HBES_PM=dnf
+          elif command -v yum     >/dev/null 2>&1; then HBES_DISTRO=rhel;   HBES_PM=yum
+          elif command -v pacman  >/dev/null 2>&1; then HBES_DISTRO=arch;   HBES_PM=pacman
+          else err "no supported package manager found (apt/dnf/pacman)."; exit 1
+          fi
+          ;;
+      esac
+      # rhel without dnf (older centos) -> yum
+      [ "$HBES_PM" = dnf ] && ! command -v dnf >/dev/null 2>&1 && HBES_PM=yum
+      # selinux awareness — we only write to $HOME, but mode informs the user
+      if command -v getenforce >/dev/null 2>&1; then
+        case "$(getenforce 2>/dev/null)" in Enforcing|Permissive) HBES_SELINUX=1 ;; esac
+      fi
+      ;;
+    *) err "unsupported OS: $(uname -s)"; exit 1 ;;
+  esac
+
+  command -v "$HBES_PM" >/dev/null 2>&1 || { err "package manager '${HBES_PM}' not found."; exit 1; }
+}
+
+# ensure_brew — macOS leans on Homebrew; bail with instructions if it's missing.
+ensure_brew() {
+  command -v brew >/dev/null 2>&1 && return 0
+  err "Homebrew not found — hbes uses it on macOS. install it, then re-run:"
+  # shellcheck disable=SC2016  # literal command to show the user, not for us to expand
+  err '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+  exit 1
 }
 
 need_sudo() {
-  if [ "$(id -u)" -ne 0 ]; then
-    SUDO="sudo"
-  else
+  # brew refuses to run as root and needs no sudo; package managers do
+  if [ "${HBES_PM:-}" = brew ] || [ "$(id -u)" -eq 0 ]; then
     SUDO=""
+  else
+    SUDO="sudo"
   fi
 }
 
@@ -144,13 +189,71 @@ ask() {
 }
 
 # ---- helpers modules use ----------------------------------------------------
-# pkg_install <pkgs...> — apt install, or just report it under --dry-run.
+# pkg_install <pkgs...> — install via the platform's package manager, or just
+# report it under --dry-run.
 pkg_install() {
   if [ "${DRY_RUN:-0}" -eq 1 ]; then
-    log "[dry-run] apt-get install $*"
+    log "[dry-run] install: $*"
     return 0
   fi
-  $SUDO apt-get install -y -qq "$@"
+  case "$HBES_PM" in
+    apt)    $SUDO apt-get install -y -qq "$@" ;;
+    dnf)    $SUDO dnf install -y "$@" ;;
+    yum)    $SUDO yum install -y "$@" ;;
+    pacman) $SUDO pacman -S --needed --noconfirm "$@" ;;
+    brew)   brew install "$@" ;;
+    *)      err "no package manager set"; return 1 ;;
+  esac
+}
+
+# pm_update — refresh the package index (best-effort; never fatal).
+pm_update() {
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then log "[dry-run] refresh ${HBES_PM:-pkg} index"; return 0; fi
+  case "$HBES_PM" in
+    apt)    $SUDO apt-get update -qq ;;
+    dnf)    $SUDO dnf -q makecache 2>/dev/null || true ;;
+    yum)    $SUDO yum -q makecache 2>/dev/null || true ;;
+    pacman) $SUDO pacman -Sy --noconfirm ;;
+    brew)   brew update >/dev/null 2>&1 || true ;;
+  esac
+}
+
+# selinux_restore <file> — fix a file's SELinux context after we replace it
+# (mktemp + mv can leave a tmp_t label that surprises tools). no-op elsewhere.
+selinux_restore() {
+  [ "${HBES_SELINUX:-0}" -eq 1 ] || return 0
+  command -v restorecon >/dev/null 2>&1 && restorecon "$1" 2>/dev/null || true
+}
+
+# ensure_yay — Arch only: install the yay AUR helper (built as a normal user).
+ensure_yay() {
+  command -v yay >/dev/null 2>&1 && { log "yay already installed"; return 0; }
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then log "[dry-run] would build yay from the AUR"; return 0; fi
+  if [ "$(id -u)" -eq 0 ]; then
+    warn "yay needs a non-root user to build (makepkg refuses root) — skipping."
+    return 0
+  fi
+  log "installing yay (AUR helper) from the AUR"
+  pkg_install base-devel git
+  local tmp; tmp="$(mktemp -d)"
+  if git clone --depth 1 https://aur.archlinux.org/yay-bin.git "${tmp}/yay-bin" >/dev/null 2>&1 \
+     && ( cd "${tmp}/yay-bin" && makepkg -si --noconfirm >/dev/null 2>&1 ); then
+    log "yay: $(yay --version 2>/dev/null | head -1)"
+  else
+    warn "yay build failed — install it by hand: https://github.com/Jguer/yay"
+  fi
+  rm -rf "$tmp"
+}
+
+# platform_setup — distro-specific bootstrap run once before modules.
+platform_setup() {
+  case "$HBES_DISTRO" in
+    arch) ensure_yay ;;
+    rhel)
+      [ "${HBES_SELINUX:-0}" -eq 1 ] && \
+        warn "SELinux is active — hbes only writes to \$HOME and restores file contexts."
+      ;;
+  esac
 }
 
 # overrides <module> <pkgs...> — echo the package list with per-module add/
@@ -191,6 +294,7 @@ write_block() {
   } >> "$tmp"
   mkdir -p "$(dirname "$file")"
   mv "$tmp" "$file"
+  selinux_restore "$file"
   log "wrote hbes block to ${file}"
 }
 
@@ -208,6 +312,7 @@ remove_block() {
   awk -v b="$begin" -v e="$end" '
     $0==b {skip=1} !skip {print} $0==e {skip=0}' "$file" > "$tmp"
   mv "$tmp" "$file"
+  selinux_restore "$file"
   log "removed hbes block from ${file}"
 }
 
@@ -273,9 +378,10 @@ recommend_python() {
 }
 
 recommend_embedded() {
-  # only worth it if this box actually talks to hardware
-  if ls /dev/ttyUSB* /dev/ttyACM* >/dev/null 2>&1; then
-    echo "serial device on /dev/tty* — hardware attached"; return 0
+  # only worth it if this box actually talks to hardware. serial-device paths
+  # differ: /dev/ttyUSB* /dev/ttyACM* on linux, /dev/tty.usb* /dev/cu.usb* on macOS.
+  if ls /dev/ttyUSB* /dev/ttyACM* /dev/tty.usb* /dev/cu.usb* >/dev/null 2>&1; then
+    echo "serial device present — hardware attached"; return 0
   fi
   if has lsusb && lsusb 2>/dev/null | grep -qiE 'stmicro|segger|j-?link|ft232|ftdi|dfu'; then
     echo "debug probe / serial bridge seen on usb"; return 0
@@ -352,13 +458,17 @@ list_modules() {
 
 # ---- main -------------------------------------------------------------------
 main() {
-  require_debian
+  detect_platform
+  [ "$HBES_PM" = brew ] && ensure_brew
   need_sudo
 
   # banner — suppressed on re-entry from the TUI so it only shows once
   if [ -z "${HBES_QUIET_BANNER:-}" ]; then
     printf '%s\n' "${c_bold}half baked env${c_reset} ${c_dim}v${HBES_VERSION}${c_reset}"
     printf '%sworks on my machine. ship it.%s\n' "$c_dim" "$c_reset"
+    local sel=""; [ "$HBES_SELINUX" -eq 1 ] && sel=" ${c_dim}· selinux${c_reset}"
+    printf '%splatform%s %s %s·%s %s%s\n' \
+      "$c_dim" "$c_reset" "$HBES_DISTRO" "$c_dim" "$c_reset" "$HBES_PM" "$sel"
   fi
 
   local selected=() m reason def config="" want_tui=0 uninstall=0 skip_installed=0
@@ -478,12 +588,9 @@ main() {
 
   [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be installed or written."
 
-  step "updating apt index"
-  if [ "$DRY_RUN" -eq 1 ]; then
-    log "[dry-run] apt-get update"
-  else
-    $SUDO apt-get update -qq
-  fi
+  step "syncing ${HBES_PM} index + platform setup"
+  pm_update
+  platform_setup
 
   for m in "${selected[@]}"; do
     run_module "$m"

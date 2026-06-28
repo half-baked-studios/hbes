@@ -3,13 +3,13 @@
 # enough to actually run python projects without fighting PEP 668.
 
 hbes_python() {
-  local pkgs=(
-    python3
-    python3-pip
-    python3-venv
-    python3-dev
-    pipx
-  )
+  local pkgs
+  case "$HBES_PM" in
+    apt)     pkgs=(python3 python3-pip python3-venv python3-dev pipx) ;;
+    dnf|yum) pkgs=(python3 python3-pip python3-devel pipx) ;;
+    pacman)  pkgs=(python python-pip python-pipx) ;;     # venv ships with python
+    brew)    pkgs=(python pipx) ;;
+  esac
   # shellcheck disable=SC2207  # package names never contain spaces or globs
   pkgs=( $(overrides python "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
@@ -22,8 +22,11 @@ hbes_python() {
     log "pipx ready — install tools with: pipx install <tool>"
   fi
 
-  log "python: $(python3 --version)"
-  log "pip:    $(pip3 --version | cut -d' ' -f1-2)"
-  warn "debian python is externally-managed (PEP 668)."
-  warn "use 'python3 -m venv .venv' per project, or pipx for CLIs."
+  command -v python3 >/dev/null 2>&1 && log "python: $(python3 --version)"
+  # PEP 668 mostly bites distro system python, not Homebrew's
+  case "$HBES_PM" in
+    apt|dnf|yum|pacman)
+      warn "system python is externally-managed (PEP 668)."
+      warn "use 'python3 -m venv .venv' per project, or pipx for CLIs." ;;
+  esac
 }

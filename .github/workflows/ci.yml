@@ -33,7 +33,7 @@ jobs:
       - name: config parser
         run: python3 config.py hbes.toml.example
 
-  install:
+  install-debian:
     # the real thing: actually run apt on a Debian-family box
     runs-on: ubuntu-latest
     steps:
@@ -46,3 +46,39 @@ jobs:
         run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"
       - name: lockfile records what we installed
         run: test -f hbes.lock && cat hbes.lock
+
+  install-fedora:
+    # real dnf on a Red Hat-family box (validates the rhel package names)
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: deps for checkout
+        run: dnf install -y git tar
+      - uses: actions/checkout@v4
+      - name: install (base + python + dotfiles)
+        run: ./install.sh --base --python --dotfiles
+      - name: dotfiles block landed
+        run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"
+
+  install-arch:
+    # real pacman on Arch (validates package names; yay is skipped as root)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: deps for checkout
+        run: pacman -Sy --noconfirm git tar
+      - uses: actions/checkout@v4
+      - name: install (base + python + dotfiles)
+        run: ./install.sh --base --python --dotfiles
+      - name: dotfiles block landed
+        run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"
+
+  install-macos:
+    # real brew on macOS (validates the brew package names + Xcode CLT path)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install (base + python + dotfiles)
+        run: ./install.sh --base --python --dotfiles
+      - name: dotfiles block landed
+        run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"

@@ -57,5 +57,13 @@ hbes_dotfiles() {
   [ "${DRY_RUN:-0}" -eq 1 ] && return 0
 
   log "shell + editor config applied (open a new shell or 'source ~/.bashrc')."
-  log "to undo: delete the '${HBES_MARK_BEGIN}' block from the file."
+  log "to undo: ./install.sh --uninstall --dotfiles"
+}
+
+# hbes_dotfiles_down — called by --uninstall. removes the managed blocks we
+# wrote; leaves the apt packages (tmux/fzf/…) in place.
+hbes_dotfiles_down() {
+  remove_block "${HOME}/.bashrc" '#'
+  remove_block "${HOME}/.vimrc"  '"'
+  log "dotfiles reverted — tmux/fzf/rg/bat left installed (apt remove to drop)."
 }

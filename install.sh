@@ -14,6 +14,9 @@
 #   ./install.sh --profile std    install a named bundle
 #   ./install.sh --config FILE    drive the run from an hbes.toml
 #   ./install.sh --dry-run        show what would happen, change nothing
+#   ./install.sh --skip-installed skip modules already in the lockfile
+#   ./install.sh --status         show what the lockfile recorded
+#   ./install.sh --uninstall [m]  revert modules (dotfiles fully; apt left alone)
 #   ./install.sh --list           list available modules and profiles
 #
 # modules:   base  toolchain  python  rust  go  node  embedded  dotfiles
@@ -69,7 +72,65 @@ run_module() {
   # shellcheck source=/dev/null
   source "$file"
   "hbes_${name}"
-  [ "${DRY_RUN:-0}" -eq 1 ] || echo "${name}" >> "$LOCKFILE"
+  record_lock "$name"
+}
+
+# the lockfile is a cumulative record of what hbes installed: one
+# "<module>\t<timestamp>" line each, newest write wins (no duplicates).
+record_lock() {
+  [ "${DRY_RUN:-0}" -eq 1 ] && return 0
+  local name="$1" tmp; tmp="$(mktemp)"
+  [ -f "$LOCKFILE" ] && awk -F'\t' -v n="$name" '$1!=n' "$LOCKFILE" > "$tmp"
+  printf '%s\t%s\n' "$name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$tmp"
+  mv "$tmp" "$LOCKFILE"
+}
+
+unrecord_lock() {
+  [ "${DRY_RUN:-0}" -eq 1 ] && return 0
+  [ -f "$LOCKFILE" ] || return 0
+  local tmp; tmp="$(mktemp)"
+  awk -F'\t' -v n="$1" '$1!=n' "$LOCKFILE" > "$tmp"
+  mv "$tmp" "$LOCKFILE"
+}
+
+# lockfile_modules — echo the space-separated modules recorded in the lockfile.
+lockfile_modules() {
+  [ -f "$LOCKFILE" ] || return 0
+  awk -F'\t' '$1!="" && $1!~/^#/ {print $1}' "$LOCKFILE" | tr '\n' ' '
+}
+
+# run_uninstall <module> — revert a module if it knows how (defines a *_down
+# function). apt packages are left alone on purpose; we only auto-undo the
+# things we wrote (e.g. dotfiles blocks).
+run_uninstall() {
+  local name="$1"
+  local file="${MODULES_DIR}/${name}.sh"
+  if [ ! -f "$file" ]; then
+    warn "module '${name}' not found, skipping"
+    return
+  fi
+  # shellcheck source=/dev/null
+  source "$file"
+  if declare -F "hbes_${name}_down" >/dev/null; then
+    step "uninstall: ${name}"
+    "hbes_${name}_down"
+  else
+    warn "${name}: no automatic uninstall — apt packages stay (remove with apt yourself)."
+  fi
+}
+
+# show_status — print what the last run recorded in the lockfile.
+show_status() {
+  if [ ! -f "$LOCKFILE" ]; then
+    warn "no hbes.lock yet — nothing installed by hbes here."
+    return 0
+  fi
+  step "hbes.lock"
+  local name ts
+  while IFS=$'\t' read -r name ts; do
+    case "$name" in ''|\#*) continue ;; esac
+    printf '  %s%-10s%s %s%s%s\n' "$c_bold" "$name" "$c_reset" "$c_dim" "${ts:-?}" "$c_reset"
+  done < "$LOCKFILE"
 }
 
 # ---- prompt -----------------------------------------------------------------
@@ -131,6 +192,23 @@ write_block() {
   mkdir -p "$(dirname "$file")"
   mv "$tmp" "$file"
   log "wrote hbes block to ${file}"
+}
+
+# remove_block <file> [comment_leader] — strip the hbes-managed block, leaving
+# the rest of the file untouched. the reverse of write_block.
+remove_block() {
+  local file="$1" cl="${2:-#}"
+  local begin="${cl} ${HBES_MARK_BEGIN}" end="${cl} ${HBES_MARK_END}"
+  [ -f "$file" ] || return 0
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then
+    log "[dry-run] would remove hbes block from ${file}"
+    return 0
+  fi
+  local tmp; tmp="$(mktemp)"
+  awk -v b="$begin" -v e="$end" '
+    $0==b {skip=1} !skip {print} $0==e {skip=0}' "$file" > "$tmp"
+  mv "$tmp" "$file"
+  log "removed hbes block from ${file}"
 }
 
 # ---- module metadata --------------------------------------------------------
@@ -283,7 +361,7 @@ main() {
     printf '%sworks on my machine. ship it.%s\n' "$c_dim" "$c_reset"
   fi
 
-  local selected=() m reason def config="" want_tui=0
+  local selected=() m reason def config="" want_tui=0 uninstall=0 skip_installed=0
   HBES_ALL=0
 
   # parse args. module-selecting flags fill `selected`; the rest are modifiers.
@@ -300,6 +378,9 @@ main() {
       --config=*) config="${1#--config=}" ;;
       --dry-run|-n) DRY_RUN=1 ;;
       --tui) want_tui=1 ;;
+      --uninstall) uninstall=1 ;;
+      --skip-installed) skip_installed=1 ;;
+      --status) show_status; exit 0 ;;
       --recommend) print_recommendations; echo; log "run again with --profile / module flags to install."; exit 0 ;;
       --list) list_modules; exit 0 ;;
       -h|--help) grep '^#' "$0" | sed 's/^#//'; exit 0 ;;
@@ -316,6 +397,26 @@ main() {
     read -r -a selected <<< "${HBES_CONFIG_MODULES:-}"
     [ "${HBES_DRY_RUN:-0}" -eq 1 ] && DRY_RUN=1
     log "config: ${config} -> [${selected[*]}]"
+  fi
+
+  # --uninstall: revert the named modules, or everything in the lockfile.
+  if [ "$uninstall" -eq 1 ]; then
+    if [ "${#selected[@]}" -eq 0 ]; then
+      read -r -a selected <<< "$(lockfile_modules)" || true
+    fi
+    if [ "${#selected[@]}" -eq 0 ]; then
+      warn "nothing to uninstall (no modules named, lockfile empty)."
+      exit 0
+    fi
+    [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be reverted."
+    for m in "${selected[@]}"; do
+      run_uninstall "$m"
+      unrecord_lock "$m"
+    done
+    step "done"
+    if [ "$DRY_RUN" -eq 1 ]; then log "[dry-run] uninstalled: ${selected[*]}"
+    else log "uninstalled: ${selected[*]}"; fi
+    exit 0
   fi
 
   # launch_tui — hand off to the questionary selector with recommended modules
@@ -358,12 +459,24 @@ main() {
     exit 0
   fi
 
-  [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be installed or written."
-
-  if [ "$DRY_RUN" -eq 0 ]; then
-    : > "$LOCKFILE"
-    echo "# hbes.lock — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOCKFILE"
+  # --skip-installed: drop modules already recorded in the lockfile.
+  if [ "$skip_installed" -eq 1 ]; then
+    local before keep=(); before=" $(lockfile_modules) "
+    for m in "${selected[@]}"; do
+      case "$before" in
+        *" $m "*) log "skip ${m} — already installed (omit --skip-installed to force)" ;;
+        *) keep+=("$m") ;;
+      esac
+    done
+    selected=()
+    [ "${#keep[@]}" -gt 0 ] && selected=("${keep[@]}")
+    if [ "${#selected[@]}" -eq 0 ]; then
+      log "everything selected is already installed. nothing to do."
+      exit 0
+    fi
   fi
+
+  [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be installed or written."
 
   step "updating apt index"
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -377,8 +490,9 @@ main() {
   done
 
   step "done"
-  log "${DRY_RUN:+[dry-run] }modules: ${selected[*]}"
-  [ "$DRY_RUN" -eq 0 ] && log "lockfile written to: ${LOCKFILE}"
+  if [ "$DRY_RUN" -eq 1 ]; then log "[dry-run] modules: ${selected[*]}"
+  else log "modules: ${selected[*]}"; fi
+  [ "$DRY_RUN" -eq 0 ] && log "recorded in ${LOCKFILE} — see ./install.sh --status"
   log "if it works, we're still going to figure out why."
 }
 

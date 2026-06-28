@@ -12,6 +12,7 @@ hbes_embedded() {
     usbutils                # lsusb
     device-tree-compiler    # dtc
   )
+  # shellcheck disable=SC2207  # package names never contain spaces or globs
   pkgs=( $(overrides embedded "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
   pkg_install "${pkgs[@]}" || {

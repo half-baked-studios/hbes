@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: shellcheck
+        run: shellcheck install.sh bootstrap.sh modules/*.sh
+      - name: bash syntax
+        run: |
+          for f in install.sh bootstrap.sh modules/*.sh; do bash -n "$f"; done
+      - name: python compiles
+        run: python3 -m py_compile config.py tui.py
+
+  smoke:
+    # every read-only / dry-run path should work without touching the box
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./install.sh --list
+      - run: ./install.sh --recommend
+      - run: ./install.sh --all --dry-run
+      - run: ./install.sh --config hbes.toml.example --dry-run
+      - name: config parser
+        run: python3 config.py hbes.toml.example
+
+  install:
+    # the real thing: actually run apt on a Debian-family box
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install (base + toolchain + python + dotfiles)
+        run: ./install.sh --base --toolchain --python --dotfiles
+      - name: re-run is idempotent
+        run: ./install.sh --base --dotfiles
+      - name: dotfiles block landed
+        run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"
+      - name: lockfile records what we installed
+        run: test -f hbes.lock && cat hbes.lock

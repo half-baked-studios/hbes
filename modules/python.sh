@@ -10,6 +10,7 @@ hbes_python() {
     python3-dev
     pipx
   )
+  # shellcheck disable=SC2207  # package names never contain spaces or globs
   pkgs=( $(overrides python "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
   pkg_install "${pkgs[@]}"

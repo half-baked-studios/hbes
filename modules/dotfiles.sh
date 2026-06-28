@@ -45,6 +45,7 @@ hbes_dotfiles() {
     ripgrep    # rg
     bat        # 'batcat' on debian
   )
+  # shellcheck disable=SC2207  # package names never contain spaces or globs
   pkgs=( $(overrides dotfiles "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
   pkg_install "${pkgs[@]}" || warn "some dotfiles CLIs may not be in apt on this release."

@@ -16,8 +16,8 @@
 #   ./install.sh --dry-run        show what would happen, change nothing
 #   ./install.sh --list           list available modules and profiles
 #
-# modules:   base  toolchain  python  embedded  dotfiles
-# profiles:  minimal  standard  full  embedded
+# modules:   base  toolchain  python  rust  go  node  embedded  dotfiles
+# profiles:  minimal  standard  workstation  full  embedded
 #
 
 set -euo pipefail
@@ -134,13 +134,16 @@ write_block() {
 }
 
 # ---- module metadata --------------------------------------------------------
-MODULES=(base toolchain python embedded dotfiles)
+MODULES=(base toolchain python rust go node embedded dotfiles)
 
 module_blurb() {
   case "$1" in
     base)      echo "gcc, make, git, curl — the non-negotiables" ;;
     toolchain) echo "clang, cmake, ninja, gdb — build-system glue" ;;
     python)    echo "pip, venv, pipx — PEP 668 aware" ;;
+    rust)      echo "rustup + stable — per-user, no apt" ;;
+    go)        echo "golang-go + gopls — straight from apt" ;;
+    node)      echo "fnm + node LTS — per-user, no apt" ;;
     embedded)  echo "arm gcc, openocd, dtc — talks to hardware" ;;
     dotfiles)  echo "shell aliases + vim defaults — idempotent" ;;
     *)         echo "" ;;
@@ -153,7 +156,7 @@ profile_modules() {
     minimal)     echo "base" ;;
     standard)    echo "base toolchain python" ;;
     workstation) echo "base toolchain python dotfiles" ;;
-    full)        echo "base toolchain python embedded dotfiles" ;;
+    full)        echo "base toolchain python go embedded dotfiles" ;;
     embedded)    echo "base toolchain embedded" ;;
     *)           return 1 ;;
   esac
@@ -212,6 +215,26 @@ recommend_dotfiles() {
   echo "shell aliases + vim defaults, marker-bounded & reversible"; return 0
 }
 
+# language toolchains are opt-in: suggested only if already partway installed,
+# or if there's a project file for that language in the current directory.
+recommend_rust() {
+  if has rustc || has rustup; then echo "rust already installed"; return 1; fi
+  [ -f Cargo.toml ] && { echo "Cargo.toml here — rust project"; return 0; }
+  echo "optional — no rust project in this dir"; return 1
+}
+
+recommend_go() {
+  if has go; then echo "go already installed"; return 1; fi
+  [ -f go.mod ] && { echo "go.mod here — go project"; return 0; }
+  echo "optional — no go project in this dir"; return 1
+}
+
+recommend_node() {
+  if has node || has fnm; then echo "node already installed"; return 1; fi
+  [ -f package.json ] && { echo "package.json here — node project"; return 0; }
+  echo "optional — no node project in this dir"; return 1
+}
+
 # print the recommendation table; install nothing.
 print_recommendations() {
   step "what hbes recommends for this box"
@@ -245,7 +268,7 @@ list_modules() {
   printf '  %-12s %s\n' "minimal"     "base"
   printf '  %-12s %s\n' "standard"    "base toolchain python"
   printf '  %-12s %s\n' "workstation" "base toolchain python dotfiles"
-  printf '  %-12s %s\n' "full"        "base toolchain python embedded dotfiles"
+  printf '  %-12s %s\n' "full"        "base toolchain python go embedded dotfiles"
   printf '  %-12s %s\n' "embedded"    "base toolchain embedded"
 }
 
@@ -267,7 +290,7 @@ main() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --all) HBES_ALL=1; selected=("${MODULES[@]}") ;;
-      --base|--toolchain|--python|--embedded|--dotfiles) selected+=("${1#--}") ;;
+      --base|--toolchain|--python|--rust|--go|--node|--embedded|--dotfiles) selected+=("${1#--}") ;;
       --profile)
         shift; [ "$#" -gt 0 ] || { err "--profile needs a name (see --list)"; exit 1; }
         read -r -a selected <<< "$(profile_modules "$1")" || { err "unknown profile: $1"; exit 1; } ;;
@@ -298,9 +321,11 @@ main() {
   # launch_tui — hand off to the questionary selector with recommended modules
   # pre-checked. it re-invokes install.sh with the chosen module flags.
   launch_tui() {
-    exec python3 "${SCRIPT_DIR}/tui.py" \
-      --preselect "$(recommended_list)" \
-      $( [ "$DRY_RUN" -eq 1 ] && echo --dry-run )
+    local pre; pre="$(recommended_list)"
+    if [ "$DRY_RUN" -eq 1 ]; then
+      exec python3 "${SCRIPT_DIR}/tui.py" --preselect "$pre" --dry-run
+    fi
+    exec python3 "${SCRIPT_DIR}/tui.py" --preselect "$pre"
   }
 
   # --tui: explicit request for the checkbox selector.

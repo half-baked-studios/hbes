@@ -13,6 +13,7 @@ hbes_base() {
     file
     vim
   )
+  # shellcheck disable=SC2207  # package names never contain spaces or globs
   pkgs=( $(overrides base "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
   pkg_install "${pkgs[@]}"

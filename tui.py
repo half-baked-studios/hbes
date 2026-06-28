@@ -14,11 +14,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL = os.path.join(HERE, "install.sh")
 
 # stable, sensible display order; unknown modules sort to the end
-ORDER = ["base", "toolchain", "python", "embedded", "dotfiles"]
+ORDER = ["base", "toolchain", "python", "rust", "go", "node", "embedded", "dotfiles"]
 BLURBS = {
     "base": "gcc, make, git, curl",
     "toolchain": "clang, cmake, ninja, gdb",
     "python": "pip, venv, pipx",
+    "rust": "rustup + stable",
+    "go": "golang-go + gopls",
+    "node": "fnm + node LTS",
     "embedded": "arm gcc, openocd, dtc",
     "dotfiles": "shell aliases + vim defaults",
 }

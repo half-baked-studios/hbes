@@ -12,6 +12,7 @@ hbes_toolchain() {
     gdb
     valgrind
   )
+  # shellcheck disable=SC2207  # package names never contain spaces or globs
   pkgs=( $(overrides toolchain "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
   pkg_install "${pkgs[@]}"

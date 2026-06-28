@@ -1,5 +1,7 @@
 # hbes — half baked env setup
 
+[![ci](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml/badge.svg)](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml)
+
 works on my machine. ship it.
 
 A dead-simple bootstrap for a Debian dev box. Picks the tools you
@@ -12,11 +14,12 @@ and writes down what it did.
 - installs the non-negotiables (`build-essential`, git, curl)
 - optional toolchain extras (clang, cmake, ninja, gdb)
 - optional python tooling (pip, venv, pipx) — PEP 668 aware
+- language toolchains: rust (rustup), go (apt), node (fnm + LTS)
 - optional embedded/cross tools (arm gcc, openocd, dtc)
 - optional dotfiles (shell aliases + vim defaults, reversible)
 - probes the box and **recommends** what's actually worth installing
-- `--dry-run` to see exactly what it would do, changing nothing
-- writes an `hbes.lock` so you know what got installed
+- `--dry-run` previews everything; `--status` / `--uninstall` use the lockfile
+- writes an `hbes.lock` recording what got installed (and when)
 
 ## quick start
 
@@ -36,6 +39,17 @@ curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run
 It uses git if you have it, a tarball if you don't. Override `HBES_DIR` to
 clone somewhere other than `~/.hbes`.
 
+Piping a script into a shell makes you nervous? Good instinct — audit it:
+
+```bash
+curl -fsSL .../bootstrap.sh | less                          # read it first
+HBES_REF=v0.3.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
+curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run      # preview, install nothing
+```
+
+Before handing off, bootstrap prints the repo, ref, and exact commit it
+fetched, so you always know which version you're about to run.
+
 ## usage
 
 …or clone it yourself and drive `install.sh` directly:
@@ -53,6 +67,9 @@ chmod +x install.sh
 ./install.sh --profile std   # install a named bundle (alias: --profile=standard)
 ./install.sh --config hbes.toml   # drive the whole run from a file
 ./install.sh --dry-run --all # show what would happen, touch nothing
+./install.sh --skip-installed --all  # only what's not already in the lockfile
+./install.sh --status        # what did hbes install here, and when
+./install.sh --uninstall --dotfiles  # revert a module (dotfiles fully)
 ./install.sh --list          # list modules and profiles
 ```
 
@@ -76,7 +93,7 @@ Declare a setup instead of clicking through it:
 | `minimal`     | base                                      |
 | `standard`    | base, toolchain, python                   |
 | `workstation` | base, toolchain, python, dotfiles         |
-| `full`        | base, toolchain, python, embedded, dotfiles|
+| `full`        | base, toolchain, python, go, embedded, dotfiles|
 | `embedded`    | base, toolchain, embedded                 |
 
 ### config file (`hbes.toml`)
@@ -123,35 +140,61 @@ hands your picks back to `install.sh`.
 | `base`      | build-essential, git, curl, wget, vim         |
 | `toolchain` | clang, lld, cmake, ninja, pkg-config, gdb     |
 | `python`    | python3, pip, venv, dev headers, pipx         |
+| `rust`      | rustup + stable toolchain (per-user, no apt)  |
+| `go`        | golang-go, gopls (apt)                         |
+| `node`      | fnm + node LTS (per-user, no apt)             |
 | `embedded`  | arm-none-eabi gcc, aarch64 cross, openocd, dtc|
 | `dotfiles`  | tmux/fzf/rg/bat + managed `~/.bashrc`, `~/.vimrc`|
+
+`rust`/`go`/`node` are opt-in: `--recommend` only suggests them when the matching
+toolchain is already partway installed, or there's a project file (`Cargo.toml`,
+`go.mod`, `package.json`) in the current directory.
 
 Each module is a standalone file in `modules/`. Adding one is just
 dropping in `modules/<name>.sh` with a `hbes_<name>()` function — use the
 shared `pkg_install`, `overrides`, and `write_block` helpers so dry-run and
-per-package overrides work for free.
+per-package overrides work for free. Add an `hbes_<name>_down()` and the module
+becomes `--uninstall`-able too.
 
 The `dotfiles` module writes **marker-bounded** blocks
 (`# >>> hbes >>>` … `# <<< hbes <<<`) into your rc files, so it's idempotent
-and you reverse it by deleting the block. It never clobbers what's already there.
+and you reverse it by deleting the block (or `--uninstall --dotfiles`). It never
+clobbers what's already there.
+
+### lockfile (`hbes.lock`)
+
+Every install appends to `hbes.lock` — one `module<TAB>timestamp` line each,
+cumulative, newest write wins. That record drives:
+
+- `--status` — list what hbes installed here, and when
+- `--skip-installed` — re-run a profile and skip what's already recorded
+- `--uninstall [modules]` — revert named modules, or everything in the lockfile.
+  Modules undo what they *wrote* (dotfiles strips its blocks); apt packages are
+  left in place on purpose — `apt remove` them yourself if you want them gone.
 
 ## what this is not
 
 - not a distro
 - not idempotent-guaranteed (re-running is usually fine, apt handles it)
-- not tested on every Debian release (PRs welcome when it breaks)
+- not tested on every Debian release — but CI does run the real installer on
+  Ubuntu each push (shellcheck + a genuine apt install), so it's not *un*tested
 
 ## roadmap (half baked, naturally)
 
-- [x] profiles so you can declare a setup instead of clicking through
-- [x] `--recommend` that probes the box and suggests modules
-- [x] `hbes.toml` config (profiles in a file, per-package overrides)
-- [x] a real TUI selector (python + questionary)
-- [x] dotfiles module (shell, editor)
-- [x] dry-run mode
+done so far:
 
-the list is empty. that's the most half-baked thing here — we'll
-think of more.
+- [x] profiles, `--recommend`, `hbes.toml` config + per-package overrides
+- [x] a real TUI selector (python + questionary)
+- [x] dotfiles module, `dry-run`, `--status` / `--skip-installed` / `--uninstall`
+- [x] rust / go / node modules
+- [x] the brew-style `curl | bash` bootstrap
+- [x] CI: shellcheck + a real apt install on Ubuntu
+
+still half baked:
+
+- [ ] more `*_down` uninstallers (right now only dotfiles fully reverts)
+- [ ] tagged releases so `HBES_REF=vX.Y.Z` pins something real
+- [ ] macOS/Homebrew backend (it's apt-only today)
 
 ---
 

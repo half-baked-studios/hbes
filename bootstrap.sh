@@ -12,7 +12,12 @@
 # knobs (env):
 #   HBES_REPO   git url to fetch        (default: github half-baked-studios/hbes)
 #   HBES_DIR    where to put it         (default: ~/.hbes)
-#   HBES_REF    branch/tag to fetch     (default: main)
+#   HBES_REF    branch/tag/sha to fetch (default: main)
+#
+# don't trust a pipe-to-shell? fair. audit it:
+#   read it first:   curl -fsSL .../bootstrap.sh | less
+#   pin a version:   HBES_REF=v0.3.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)"
+#   preview only:    curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run
 #
 
 set -euo pipefail
@@ -47,11 +52,25 @@ fetch() {
   fi
 }
 
+# print exactly what we fetched, so a curl|bash run is auditable: which repo,
+# which ref, which commit, where it landed.
+print_plan() {
+  local at=""
+  if command -v git >/dev/null 2>&1 && [ -d "${HBES_DIR}/.git" ]; then
+    at=" @ $(git -C "$HBES_DIR" rev-parse --short HEAD 2>/dev/null)"
+  fi
+  say "source ${HBES_REPO}"
+  say "ref    ${HBES_REF}${at}"
+  say "dir    ${HBES_DIR}"
+}
+
 main() {
   fetch
   cd "$HBES_DIR"
+  [ -f install.sh ] || die "install.sh missing after fetch — aborting."
   chmod +x install.sh
-  say "running installer from ${HBES_DIR}"
+  print_plan
+  say "handing off to install.sh — Ctrl-C to bail, or re-run with --dry-run"
 
   # if stdin is a pipe (curl | bash), try to attach the real terminal so the
   # interactive picker still works. probe in a subshell so a missing tty can't

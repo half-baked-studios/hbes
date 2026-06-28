@@ -1,0 +1,17 @@
+# hbes.toml — declare your setup once, then:  ./install.sh --config hbes.toml
+#
+# copy this to hbes.toml and edit. it's your profile, in a file.
+
+# which modules to run (this *is* a custom profile)
+modules = ["base", "toolchain", "python", "dotfiles"]
+
+# force dry-run from the file (the CLI --dry-run flag also works)
+dry_run = false
+
+# per-package overrides: tweak what a module installs without editing its .sh
+[packages.toolchain]
+add    = ["mold", "ccache"]   # extra apt packages to pull in
+remove = ["valgrind"]         # drop ones you don't want
+
+[packages.base]
+remove = ["vim"]              # team neovim? drop vim from base

@@ -7,22 +7,30 @@
 #
 # usage:
 #   ./install.sh                  interactive (recommendation-driven defaults)
+#   ./install.sh --tui            interactive checkbox selector (python+questionary)
 #   ./install.sh --recommend      probe the box, print suggestions, install nothing
 #   ./install.sh --all            every module, no prompts
 #   ./install.sh --base --python  pick modules by name
 #   ./install.sh --profile std    install a named bundle
+#   ./install.sh --config FILE    drive the run from an hbes.toml
+#   ./install.sh --dry-run        show what would happen, change nothing
 #   ./install.sh --list           list available modules and profiles
 #
-# modules:   base  toolchain  python  embedded
+# modules:   base  toolchain  python  embedded  dotfiles
 # profiles:  minimal  standard  full  embedded
 #
 
 set -euo pipefail
 
-HBES_VERSION="0.2.0"
+HBES_VERSION="0.3.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 LOCKFILE="${SCRIPT_DIR}/hbes.lock"
+DRY_RUN=0
+
+# markers that bound an hbes-managed block inside a config file
+HBES_MARK_BEGIN=">>> hbes >>>"
+HBES_MARK_END="<<< hbes <<<"
 
 # ---- pretty output ----------------------------------------------------------
 c_reset=$'\033[0m'; c_dim=$'\033[2m'; c_grn=$'\033[32m'
@@ -61,7 +69,7 @@ run_module() {
   # shellcheck source=/dev/null
   source "$file"
   "hbes_${name}"
-  echo "${name}" >> "$LOCKFILE"
+  [ "${DRY_RUN:-0}" -eq 1 ] || echo "${name}" >> "$LOCKFILE"
 }
 
 # ---- prompt -----------------------------------------------------------------
@@ -74,8 +82,59 @@ ask() {
   [[ "$ans" =~ ^[Yy] ]]
 }
 
+# ---- helpers modules use ----------------------------------------------------
+# pkg_install <pkgs...> — apt install, or just report it under --dry-run.
+pkg_install() {
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then
+    log "[dry-run] apt-get install $*"
+    return 0
+  fi
+  $SUDO apt-get install -y -qq "$@"
+}
+
+# overrides <module> <pkgs...> — echo the package list with per-module add/
+# remove applied. driven by HBES_ADD_<m> / HBES_REMOVE_<m> (set from hbes.toml).
+# package names never contain spaces, so word-splitting the result is safe.
+overrides() {
+  local mod="$1"; shift
+  local add_var="HBES_ADD_${mod}" rm_var="HBES_REMOVE_${mod}"
+  local add="${!add_var:-}" remove="${!rm_var:-}"
+  local p out=()
+  for p in "$@"; do
+    case " $remove " in *" $p "*) continue ;; esac
+    out+=("$p")
+  done
+  for p in $add; do out+=("$p"); done
+  printf '%s\n' "${out[@]}"
+}
+
+# write_block <file> <content> [comment_leader] — insert or replace an
+# hbes-managed, marker-bounded block in <file>, leaving everything else alone.
+# idempotent: re-running replaces our block, never duplicates it.
+write_block() {
+  local file="$1" content="$2" cl="${3:-#}"
+  local begin="${cl} ${HBES_MARK_BEGIN}" end="${cl} ${HBES_MARK_END}"
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then
+    log "[dry-run] would write hbes block to ${file}"
+    return 0
+  fi
+  local tmp; tmp="$(mktemp)"
+  if [ -f "$file" ]; then
+    awk -v b="$begin" -v e="$end" '
+      $0==b {skip=1} !skip {print} $0==e {skip=0}' "$file" > "$tmp"
+  fi
+  {
+    printf '%s\n' "$begin"
+    printf '%s\n' "$content"
+    printf '%s\n' "$end"
+  } >> "$tmp"
+  mkdir -p "$(dirname "$file")"
+  mv "$tmp" "$file"
+  log "wrote hbes block to ${file}"
+}
+
 # ---- module metadata --------------------------------------------------------
-MODULES=(base toolchain python embedded)
+MODULES=(base toolchain python embedded dotfiles)
 
 module_blurb() {
   case "$1" in
@@ -83,6 +142,7 @@ module_blurb() {
     toolchain) echo "clang, cmake, ninja, gdb — build-system glue" ;;
     python)    echo "pip, venv, pipx — PEP 668 aware" ;;
     embedded)  echo "arm gcc, openocd, dtc — talks to hardware" ;;
+    dotfiles)  echo "shell aliases + vim defaults — idempotent" ;;
     *)         echo "" ;;
   esac
 }
@@ -90,11 +150,12 @@ module_blurb() {
 # profiles: named bundles so you can declare a setup instead of clicking.
 profile_modules() {
   case "$1" in
-    minimal)  echo "base" ;;
-    standard) echo "base toolchain python" ;;
-    full)     echo "base toolchain python embedded" ;;
-    embedded) echo "base toolchain embedded" ;;
-    *)        return 1 ;;
+    minimal)     echo "base" ;;
+    standard)    echo "base toolchain python" ;;
+    workstation) echo "base toolchain python dotfiles" ;;
+    full)        echo "base toolchain python embedded dotfiles" ;;
+    embedded)    echo "base toolchain embedded" ;;
+    *)           return 1 ;;
   esac
 }
 
@@ -144,6 +205,13 @@ recommend_embedded() {
   echo "no serial/usb probes detected"; return 1
 }
 
+recommend_dotfiles() {
+  if [ -f "$HOME/.bashrc" ] && grep -qF "$HBES_MARK_BEGIN" "$HOME/.bashrc" 2>/dev/null; then
+    echo "hbes dotfiles already applied"; return 1
+  fi
+  echo "shell aliases + vim defaults, marker-bounded & reversible"; return 0
+}
+
 # print the recommendation table; install nothing.
 print_recommendations() {
   step "what hbes recommends for this box"
@@ -165,10 +233,11 @@ list_modules() {
     printf '  %s%-10s%s %s\n' "$c_bold" "$m" "$c_reset" "$(module_blurb "$m")"
   done
   step "profiles"
-  printf '  %-10s %s\n' "minimal"  "base"
-  printf '  %-10s %s\n' "standard" "base toolchain python"
-  printf '  %-10s %s\n' "full"     "base toolchain python embedded"
-  printf '  %-10s %s\n' "embedded" "base toolchain embedded"
+  printf '  %-12s %s\n' "minimal"     "base"
+  printf '  %-12s %s\n' "standard"    "base toolchain python"
+  printf '  %-12s %s\n' "workstation" "base toolchain python dotfiles"
+  printf '  %-12s %s\n' "full"        "base toolchain python embedded dotfiles"
+  printf '  %-12s %s\n' "embedded"    "base toolchain embedded"
 }
 
 # ---- main -------------------------------------------------------------------
@@ -179,34 +248,54 @@ main() {
   printf '%s\n' "${c_bold}half baked env${c_reset} ${c_dim}v${HBES_VERSION}${c_reset}"
   printf '%sworks on my machine. ship it.%s\n' "$c_dim" "$c_reset"
 
-  local selected=() m reason def
+  local selected=() m reason def config="" want_tui=0
   HBES_ALL=0
 
-  # parse args
-  if [ "$#" -eq 0 ]; then
-    # interactive: recommendation drives the per-module default
+  # parse args. module-selecting flags fill `selected`; the rest are modifiers.
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --all) HBES_ALL=1; selected=("${MODULES[@]}") ;;
+      --base|--toolchain|--python|--embedded|--dotfiles) selected+=("${1#--}") ;;
+      --profile)
+        shift; [ "$#" -gt 0 ] || { err "--profile needs a name (see --list)"; exit 1; }
+        read -r -a selected <<< "$(profile_modules "$1")" || { err "unknown profile: $1"; exit 1; } ;;
+      --profile=*)
+        read -r -a selected <<< "$(profile_modules "${1#--profile=}")" || { err "unknown profile: ${1#--profile=}"; exit 1; } ;;
+      --config) shift; [ "$#" -gt 0 ] || { err "--config needs a path"; exit 1; }; config="$1" ;;
+      --config=*) config="${1#--config=}" ;;
+      --dry-run|-n) DRY_RUN=1 ;;
+      --tui) want_tui=1 ;;
+      --recommend) print_recommendations; echo; log "run again with --profile / module flags to install."; exit 0 ;;
+      --list) list_modules; exit 0 ;;
+      -h|--help) grep '^#' "$0" | sed 's/^#//'; exit 0 ;;
+      *) warn "unknown arg: $1" ;;
+    esac
+    shift
+  done
+
+  # --config: let an hbes.toml declare modules, per-package overrides, dry-run.
+  if [ -n "$config" ]; then
+    [ -f "$config" ] || { err "config not found: $config"; exit 1; }
+    has python3 || { err "--config needs python3 to read toml"; exit 1; }
+    eval "$(python3 "${SCRIPT_DIR}/config.py" "$config")" || { err "could not parse $config"; exit 1; }
+    read -r -a selected <<< "${HBES_CONFIG_MODULES:-}"
+    [ "${HBES_DRY_RUN:-0}" -eq 1 ] && DRY_RUN=1
+    log "config: ${config} -> [${selected[*]}]"
+  fi
+
+  # --tui: hand off to the questionary selector, which re-invokes us with flags.
+  if [ "$want_tui" -eq 1 ]; then
+    has python3 || { err "--tui needs python3"; exit 1; }
+    exec python3 "${SCRIPT_DIR}/tui.py" $( [ "$DRY_RUN" -eq 1 ] && echo --dry-run )
+  fi
+
+  # nothing chosen on the command line -> interactive, recommendation-driven.
+  if [ "${#selected[@]}" -eq 0 ] && [ -z "$config" ]; then
     print_recommendations
     echo
     for m in "${MODULES[@]}"; do
       if reason="$(recommend_"$m")"; then def=y; else def=n; fi
       ask "install ${m} ($(module_blurb "$m"))" "$def" && selected+=("$m")
-    done
-  else
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        --all) HBES_ALL=1; selected=("${MODULES[@]}") ;;
-        --base|--toolchain|--python|--embedded) selected+=("${1#--}") ;;
-        --recommend) print_recommendations; echo; log "run again with --profile / module flags to install."; exit 0 ;;
-        --list) list_modules; exit 0 ;;
-        --profile)
-          shift; [ "$#" -gt 0 ] || { err "--profile needs a name (see --list)"; exit 1; }
-          read -r -a selected <<< "$(profile_modules "$1")" || { err "unknown profile: $1"; exit 1; } ;;
-        --profile=*)
-          read -r -a selected <<< "$(profile_modules "${1#--profile=}")" || { err "unknown profile: ${1#--profile=}"; exit 1; } ;;
-        -h|--help) grep '^#' "$0" | sed 's/^#//'; exit 0 ;;
-        *) warn "unknown arg: $1" ;;
-      esac
-      shift
     done
   fi
 
@@ -215,19 +304,27 @@ main() {
     exit 0
   fi
 
-  : > "$LOCKFILE"
-  echo "# hbes.lock — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOCKFILE"
+  [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be installed or written."
+
+  if [ "$DRY_RUN" -eq 0 ]; then
+    : > "$LOCKFILE"
+    echo "# hbes.lock — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOCKFILE"
+  fi
 
   step "updating apt index"
-  $SUDO apt-get update -qq
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "[dry-run] apt-get update"
+  else
+    $SUDO apt-get update -qq
+  fi
 
   for m in "${selected[@]}"; do
     run_module "$m"
   done
 
   step "done"
-  log "installed modules: ${selected[*]}"
-  log "lockfile written to: ${LOCKFILE}"
+  log "${DRY_RUN:+[dry-run] }modules: ${selected[*]}"
+  [ "$DRY_RUN" -eq 0 ] && log "lockfile written to: ${LOCKFILE}"
   log "if it works, we're still going to figure out why."
 }
 

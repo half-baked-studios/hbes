@@ -9,3 +9,10 @@ hbes.lock
 *~
 .idea/
 .vscode/
+
+# python
+__pycache__/
+*.pyc
+
+# your local config (commit hbes.toml.example instead)
+hbes.toml

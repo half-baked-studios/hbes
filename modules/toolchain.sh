@@ -12,8 +12,10 @@ hbes_toolchain() {
     gdb
     valgrind
   )
+  pkgs=( $(overrides toolchain "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
-  $SUDO apt-get install -y -qq "${pkgs[@]}"
+  pkg_install "${pkgs[@]}"
+  [ "${DRY_RUN:-0}" -eq 1 ] && return 0
 
   log "clang: $(clang --version | head -1)"
   log "cmake: $(cmake --version | head -1)"

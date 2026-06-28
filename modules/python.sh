@@ -10,8 +10,10 @@ hbes_python() {
     python3-dev
     pipx
   )
+  pkgs=( $(overrides python "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
-  $SUDO apt-get install -y -qq "${pkgs[@]}"
+  pkg_install "${pkgs[@]}"
+  [ "${DRY_RUN:-0}" -eq 1 ] && return 0
 
   # pipx path setup (per-user, no sudo)
   if command -v pipx >/dev/null 2>&1; then

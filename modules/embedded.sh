@@ -12,11 +12,13 @@ hbes_embedded() {
     usbutils                # lsusb
     device-tree-compiler    # dtc
   )
+  pkgs=( $(overrides embedded "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
-  $SUDO apt-get install -y -qq "${pkgs[@]}" || {
+  pkg_install "${pkgs[@]}" || {
     warn "some embedded packages may not exist on this Debian release."
     warn "check 'apt-cache search gcc-arm' if a package was skipped."
   }
+  [ "${DRY_RUN:-0}" -eq 1 ] && return 0
 
   # rkdeveloptool isn't in apt — note it, don't auto-build
   if ! command -v rkdeveloptool >/dev/null 2>&1; then

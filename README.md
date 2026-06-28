@@ -13,7 +13,9 @@ and writes down what it did.
 - optional toolchain extras (clang, cmake, ninja, gdb)
 - optional python tooling (pip, venv, pipx) — PEP 668 aware
 - optional embedded/cross tools (arm gcc, openocd, dtc)
+- optional dotfiles (shell aliases + vim defaults, reversible)
 - probes the box and **recommends** what's actually worth installing
+- `--dry-run` to see exactly what it would do, changing nothing
 - writes an `hbes.lock` so you know what got installed
 
 ## usage
@@ -24,12 +26,18 @@ cd hbes
 chmod +x install.sh
 
 ./install.sh                 # interactive — recommendations drive the defaults
+./install.sh --tui           # checkbox selector (python + questionary)
 ./install.sh --recommend     # probe the box, print suggestions, install nothing
 ./install.sh --all           # everything, no prompts
 ./install.sh --base --python # just the modules you name
 ./install.sh --profile std   # install a named bundle (alias: --profile=standard)
+./install.sh --config hbes.toml   # drive the whole run from a file
+./install.sh --dry-run --all # show what would happen, touch nothing
 ./install.sh --list          # list modules and profiles
 ```
+
+`--dry-run` composes with everything — it prints every `apt-get` and every
+dotfile write instead of running them, and never touches the lockfile.
 
 ### recommend
 
@@ -43,12 +51,43 @@ line tells you *why* it was suggested — nothing is installed until you say so.
 
 Declare a setup instead of clicking through it:
 
-| profile    | modules                                  |
-|------------|------------------------------------------|
-| `minimal`  | base                                     |
-| `standard` | base, toolchain, python                  |
-| `full`     | base, toolchain, python, embedded        |
-| `embedded` | base, toolchain, embedded                |
+| profile       | modules                                   |
+|---------------|-------------------------------------------|
+| `minimal`     | base                                      |
+| `standard`    | base, toolchain, python                   |
+| `workstation` | base, toolchain, python, dotfiles         |
+| `full`        | base, toolchain, python, embedded, dotfiles|
+| `embedded`    | base, toolchain, embedded                 |
+
+### config file (`hbes.toml`)
+
+For a setup you keep around, declare it in a file instead of remembering flags.
+Copy [`hbes.toml.example`](hbes.toml.example) to `hbes.toml`, edit, and run
+`./install.sh --config hbes.toml`:
+
+```toml
+modules = ["base", "toolchain", "python", "dotfiles"]
+dry_run = false
+
+# per-package overrides — tweak a module without editing its .sh
+[packages.toolchain]
+add    = ["mold", "ccache"]
+remove = ["valgrind"]
+
+[packages.base]
+remove = ["vim"]
+```
+
+`add`/`remove` adjust a module's apt package list, so you get the module's
+structure with your packages. (`--config` parses TOML with python3 — already
+there on any Debian box, and installed by the `python` module anyway.)
+
+### TUI
+
+`./install.sh --tui` opens a checkbox selector (needs `questionary`:
+`pipx install questionary`). No questionary? It falls back to a plain numbered
+prompt, so it still works on a fresh box. Either way it just hands your picks
+back to `install.sh`.
 
 ## modules
 
@@ -58,9 +97,16 @@ Declare a setup instead of clicking through it:
 | `toolchain` | clang, lld, cmake, ninja, pkg-config, gdb     |
 | `python`    | python3, pip, venv, dev headers, pipx         |
 | `embedded`  | arm-none-eabi gcc, aarch64 cross, openocd, dtc|
+| `dotfiles`  | tmux/fzf/rg/bat + managed `~/.bashrc`, `~/.vimrc`|
 
 Each module is a standalone file in `modules/`. Adding one is just
-dropping in `modules/<name>.sh` with a `hbes_<name>()` function.
+dropping in `modules/<name>.sh` with a `hbes_<name>()` function — use the
+shared `pkg_install`, `overrides`, and `write_block` helpers so dry-run and
+per-package overrides work for free.
+
+The `dotfiles` module writes **marker-bounded** blocks
+(`# >>> hbes >>>` … `# <<< hbes <<<`) into your rc files, so it's idempotent
+and you reverse it by deleting the block. It never clobbers what's already there.
 
 ## what this is not
 
@@ -72,10 +118,13 @@ dropping in `modules/<name>.sh` with a `hbes_<name>()` function.
 
 - [x] profiles so you can declare a setup instead of clicking through
 - [x] `--recommend` that probes the box and suggests modules
-- [ ] `hbes.toml` config (profiles in a file, per-package overrides)
-- [ ] a real TUI selector (python + questionary)
-- [ ] dotfiles module (shell, editor)
-- [ ] dry-run mode
+- [x] `hbes.toml` config (profiles in a file, per-package overrides)
+- [x] a real TUI selector (python + questionary)
+- [x] dotfiles module (shell, editor)
+- [x] dry-run mode
+
+the list is empty. that's the most half-baked thing here — we'll
+think of more.
 
 ---
 

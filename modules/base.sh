@@ -13,8 +13,10 @@ hbes_base() {
     file
     vim
   )
+  pkgs=( $(overrides base "${pkgs[@]}") )
   log "installing: ${pkgs[*]}"
-  $SUDO apt-get install -y -qq "${pkgs[@]}"
+  pkg_install "${pkgs[@]}"
+  [ "${DRY_RUN:-0}" -eq 1 ] && return 0
 
   log "gcc:  $(gcc --version | head -1)"
   log "make: $(make --version | head -1)"

@@ -33,9 +33,15 @@ hbes detects your package manager and maps each module's package list to it
 | RHEL / Fedora / CentOS  | `dnf` (or `yum`)   | SELinux-aware — only writes to `$HOME`, runs `restorecon` on files it touches |
 | Arch                    | `pacman`           | also bootstraps **yay** (AUR helper) on first install     |
 | macOS                   | `brew`             | checks Homebrew is present, points you at the installer if not |
+| Windows (via WSL)       | `apt` / `dnf` / …  | runs as-is inside WSL — it's real Linux; native Windows is unsupported |
 
 Same flags everywhere. Each run prints the detected `platform <distro> · <pm>`
-up top so you know what it's about to drive.
+(with a `· wsl` / `· selinux` tag where relevant) so you know what it's driving.
+
+**Windows:** no native support — there's no system package manager to drive.
+Use [WSL](https://learn.microsoft.com/windows/wsl/): `wsl --install`, open your
+distro, and run hbes exactly like on Linux. From Git Bash / MSYS / Cygwin it
+bails with a clear pointer to WSL instead of failing cryptically.
 
 ## quick start
 

@@ -3,8 +3,9 @@
 # hbes — Half Baked Env
 # works on my machine. ship it.
 #
-# Bootstrap a dev box on Debian/Ubuntu, RHEL/Fedora, Arch, or macOS.
+# Bootstrap a dev box on Debian/Ubuntu, RHEL/Fedora, Arch, macOS — or WSL.
 # Detects the package manager (apt/dnf/pacman/brew). Pick modules, or recommend.
+# Native Windows isn't supported (no package manager); use WSL.
 #
 # usage:
 #   ./install.sh                  interactive — checkbox TUI if available, else y/n
@@ -49,12 +50,16 @@ step() { printf '\n%s==>%s %s%s%s\n' "$c_grn" "$c_reset" "$c_bold" "$*" "$c_rese
 # sets HBES_OS (linux/macos), HBES_DISTRO (debian/rhel/arch/macos),
 # HBES_PM (apt/dnf/yum/pacman/brew), HBES_SELINUX (1 if enforcing/permissive).
 detect_platform() {
-  HBES_SELINUX=0
+  HBES_SELINUX=0; HBES_WSL=0
   case "$(uname -s)" in
     Darwin)
       HBES_DISTRO=macos; HBES_PM=brew
       ;;
     Linux)
+      # WSL is real Linux (apt/dnf just work) — flag it for the banner
+      if grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null || [ -n "${WSL_DISTRO_NAME:-}" ]; then
+        HBES_WSL=1
+      fi
       local id="" like=""
       if [ -r /etc/os-release ]; then
         id="$(awk -F= '$1=="ID"{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
@@ -80,6 +85,12 @@ detect_platform() {
       if command -v getenforce >/dev/null 2>&1; then
         case "$(getenforce 2>/dev/null)" in Enforcing|Permissive) HBES_SELINUX=1 ;; esac
       fi
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      err "this is Git Bash / MSYS / Cygwin on Windows — there's no system"
+      err "package manager here. run hbes inside WSL, which is real Linux:"
+      err "  wsl --install     # reboot, open your distro, then re-run hbes"
+      exit 1
       ;;
     *) err "unsupported OS: $(uname -s)"; exit 1 ;;
   esac
@@ -470,9 +481,12 @@ main() {
   if [ -z "${HBES_QUIET_BANNER:-}" ]; then
     printf '%s\n' "${c_bold}half baked env${c_reset} ${c_dim}v${HBES_VERSION}${c_reset}"
     printf '%sworks on my machine. ship it.%s\n' "$c_dim" "$c_reset"
-    local sel=""; [ "$HBES_SELINUX" -eq 1 ] && sel=" ${c_dim}· selinux${c_reset}"
-    printf '%splatform%s %s %s·%s %s%s\n' \
-      "$c_dim" "$c_reset" "$HBES_DISTRO" "$c_dim" "$c_reset" "$HBES_PM" "$sel"
+    local tags=""
+    [ "${HBES_WSL:-0}" -eq 1 ]     && tags="${tags} · wsl"
+    [ "${HBES_SELINUX:-0}" -eq 1 ] && tags="${tags} · selinux"
+    printf '%splatform%s %s %s·%s %s%s%s%s\n' \
+      "$c_dim" "$c_reset" "$HBES_DISTRO" "$c_dim" "$c_reset" "$HBES_PM" \
+      "$c_dim" "$tags" "$c_reset"
   fi
 
   local selected=() m reason def config="" want_tui=0 uninstall=0 skip_installed=0

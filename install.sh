@@ -222,7 +222,9 @@ pm_update() {
 # (mktemp + mv can leave a tmp_t label that surprises tools). no-op elsewhere.
 selinux_restore() {
   [ "${HBES_SELINUX:-0}" -eq 1 ] || return 0
-  command -v restorecon >/dev/null 2>&1 && restorecon "$1" 2>/dev/null || true
+  if command -v restorecon >/dev/null 2>&1; then
+    restorecon "$1" 2>/dev/null || true
+  fi
 }
 
 # ensure_yay — Arch only: install the yay AUR helper (built as a normal user).
@@ -250,10 +252,12 @@ platform_setup() {
   case "$HBES_DISTRO" in
     arch) ensure_yay ;;
     rhel)
-      [ "${HBES_SELINUX:-0}" -eq 1 ] && \
+      if [ "${HBES_SELINUX:-0}" -eq 1 ]; then
         warn "SELinux is active — hbes only writes to \$HOME and restores file contexts."
+      fi
       ;;
   esac
+  return 0
 }
 
 # overrides <module> <pkgs...> — echo the package list with per-module add/

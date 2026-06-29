@@ -6,7 +6,7 @@
 _base_pkgs() {
   case "$HBES_PM" in
     apt)     echo build-essential git curl wget ca-certificates unzip file vim ;;
-    dnf|yum) echo gcc gcc-c++ make git curl wget ca-certificates unzip file vim ;;
+    dnf|yum) echo gcc gcc-c++ make git curl wget ca-certificates unzip file vim-enhanced ;;
     pacman)  echo base-devel git curl wget unzip file vim ;;
     brew)    echo git curl wget ;;   # compiler + make come from Xcode CLT
   esac

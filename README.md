@@ -71,7 +71,7 @@ Piping a script into a shell makes you nervous? Good instinct — audit it:
 
 ```bash
 curl -fsSL .../bootstrap.sh | less                          # read it first
-HBES_REF=v0.4.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
+HBES_REF=v0.5.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
 curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run      # preview, install nothing
 ```
 
@@ -227,7 +227,7 @@ still half baked:
 
 - [x] uninstallers for every module (`*_down`, conservative package removal)
 - [x] RHEL EPEL auto-enable; Debian `--backports`
-- [x] tagged releases so `HBES_REF=vX.Y.Z` pins something real (`v0.4.0`)
+- [x] tagged releases so `HBES_REF=vX.Y.Z` pins something real (`v0.5.0`)
 - [ ] per-platform package overrides in `hbes.toml` (today overrides are global)
 
 ---

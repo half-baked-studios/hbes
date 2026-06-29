@@ -3,16 +3,19 @@
 # arm gcc, openocd, the stuff you only want on the dev box that
 # actually talks to hardware. toolchain package names vary a lot.
 
+_embedded_pkgs() {
+  case "$HBES_PM" in
+    apt)     echo gcc-arm-none-eabi gcc-aarch64-linux-gnu openocd minicom usbutils device-tree-compiler ;;
+    dnf|yum) echo arm-none-eabi-gcc-cs arm-none-eabi-newlib openocd minicom usbutils dtc ;;
+    pacman)  echo arm-none-eabi-gcc arm-none-eabi-newlib openocd minicom usbutils dtc ;;
+    brew)    echo open-ocd minicom dtc ;;   # bare-metal arm gcc needs a tap (below)
+  esac
+}
+
 hbes_embedded() {
   local pkgs
-  case "$HBES_PM" in
-    apt)     pkgs=(gcc-arm-none-eabi gcc-aarch64-linux-gnu openocd minicom usbutils device-tree-compiler) ;;
-    dnf|yum) pkgs=(arm-none-eabi-gcc-cs arm-none-eabi-newlib openocd minicom usbutils dtc) ;;
-    pacman)  pkgs=(arm-none-eabi-gcc arm-none-eabi-newlib openocd minicom usbutils dtc) ;;
-    brew)    pkgs=(open-ocd minicom dtc) ;;   # bare-metal arm gcc needs a tap (below)
-  esac
-  # shellcheck disable=SC2207  # package names never contain spaces or globs
-  pkgs=( $(overrides embedded "${pkgs[@]}") )
+  # shellcheck disable=SC2046,SC2207  # package names never contain spaces or globs
+  pkgs=( $(overrides embedded $(_embedded_pkgs)) )
   log "installing: ${pkgs[*]}"
   pkg_install "${pkgs[@]}" || {
     warn "some embedded packages may not exist on this platform."
@@ -34,4 +37,14 @@ hbes_embedded() {
     warn "rkdeveloptool not found — not in most repos."
     warn "build from source: https://github.com/rockchip-linux/rkdeveloptool"
   fi
+  return 0
+}
+
+hbes_embedded_down() {
+  local pkgs
+  # shellcheck disable=SC2046,SC2207
+  pkgs=( $(overrides embedded $(_embedded_pkgs)) )
+  log "removing: ${pkgs[*]}"
+  pkg_remove "${pkgs[@]}" || warn "some embedded packages weren't installed."
+  return 0
 }

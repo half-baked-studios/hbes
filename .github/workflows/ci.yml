@@ -46,6 +46,12 @@ jobs:
         run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"
       - name: lockfile records what we installed
         run: test -f hbes.lock && cat hbes.lock
+      - name: --backports flag works (apt -t path)
+        run: ./install.sh --base --backports
+      - name: --uninstall reverts dotfiles
+        run: |
+          echo y | ./install.sh --uninstall --dotfiles
+          ! grep -qF ">>> hbes >>>" "$HOME/.bashrc"
 
   install-fedora:
     # real dnf on a Red Hat-family box (validates the rhel package names)
@@ -56,6 +62,19 @@ jobs:
         run: dnf install -y git tar
       - uses: actions/checkout@v4
       - name: install (base + python + dotfiles)
+        run: ./install.sh --base --python --dotfiles
+      - name: dotfiles block landed
+        run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"
+
+  install-rocky:
+    # real dnf on a RHEL-like (Rocky) — validates EPEL auto-enable for fzf/rg/bat
+    runs-on: ubuntu-latest
+    container: rockylinux:9
+    steps:
+      - name: deps for checkout
+        run: dnf install -y git tar
+      - uses: actions/checkout@v4
+      - name: install (dotfiles needs EPEL packages)
         run: ./install.sh --base --python --dotfiles
       - name: dotfiles block landed
         run: grep -qF ">>> hbes >>>" "$HOME/.bashrc"

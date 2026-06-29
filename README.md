@@ -1,4 +1,4 @@
-# hbes — half baked env setup
+# hbes — Half Baked Studio Ofiicial Enviourment Setup Tool
 
 [![ci](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml/badge.svg)](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml)
 &nbsp;
@@ -35,8 +35,8 @@ hbes detects your package manager and maps each module's package list to it
 
 | platform                | manager            | platform notes                                            |
 |-------------------------|--------------------|-----------------------------------------------------------|
-| Debian / Ubuntu         | `apt`              | the original target                                       |
-| RHEL / Fedora / CentOS  | `dnf` (or `yum`)   | SELinux-aware — only writes to `$HOME`, runs `restorecon` on files it touches |
+| Debian / Ubuntu         | `apt`              | the original target; `--backports` opts into newer packages |
+| RHEL / Fedora / CentOS  | `dnf` (or `yum`)   | auto-enables **EPEL** on RHEL-likes (fzf/rg/bat live there); SELinux-aware |
 | Arch                    | `pacman`           | also bootstraps **yay** (AUR helper) on first install     |
 | macOS                   | `brew`             | checks Homebrew is present, points you at the installer if not |
 | Windows (via WSL)       | `apt` / `dnf` / …  | runs as-is inside WSL — it's real Linux; native Windows is unsupported |
@@ -96,8 +96,9 @@ chmod +x install.sh
 ./install.sh --config hbes.toml   # drive the whole run from a file
 ./install.sh --dry-run --all # show what would happen, touch nothing
 ./install.sh --skip-installed --all  # only what's not already in the lockfile
+./install.sh --backports --toolchain # (Debian) pull newer versions from backports
 ./install.sh --status        # what did hbes install here, and when
-./install.sh --uninstall --dotfiles  # revert a module (dotfiles fully)
+./install.sh --uninstall --dotfiles  # revert a module (removes its packages, asks first)
 ./install.sh --list          # list modules and profiles
 ```
 
@@ -197,8 +198,11 @@ cumulative, newest write wins. That record drives:
 - `--status` — list what hbes installed here, and when
 - `--skip-installed` — re-run a profile and skip what's already recorded
 - `--uninstall [modules]` — revert named modules, or everything in the lockfile.
-  Modules undo what they *wrote* (dotfiles strips its blocks); installed packages
-  are left in place on purpose — remove them with your package manager if you want.
+  Conservative by default: removes the packages a module installed (**no purge,
+  no dependency cascade** — orphaned deps stay), strips dotfiles blocks, and
+  `rustup self uninstall` / removes fnm for the per-user toolchains. It prints
+  what it'll remove and **asks before touching anything** (skip the prompt only
+  by piping `y`). Pair with `--dry-run` to preview.
 
 ## what this is not
 
@@ -221,7 +225,8 @@ done so far:
 
 still half baked:
 
-- [ ] more `*_down` uninstallers (right now only dotfiles fully reverts)
+- [x] uninstallers for every module (`*_down`, conservative package removal)
+- [x] RHEL EPEL auto-enable; Debian `--backports`
 - [x] tagged releases so `HBES_REF=vX.Y.Z` pins something real (`v0.4.0`)
 - [ ] per-platform package overrides in `hbes.toml` (today overrides are global)
 

@@ -23,4 +23,15 @@ hbes_rust() {
   command -v rustc >/dev/null 2>&1 && log "rust:  $(rustc --version)"
   command -v cargo >/dev/null 2>&1 && log "cargo: $(cargo --version)"
   warn "cargo lives in ~/.cargo/bin — open a new shell, or: . ~/.cargo/env"
+  return 0
+}
+
+hbes_rust_down() {
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then log "[dry-run] would run rustup self uninstall"; return 0; fi
+  if command -v rustup >/dev/null 2>&1; then
+    rustup self uninstall -y || warn "rustup self uninstall failed."
+  else
+    warn "rustup not found — nothing to remove."
+  fi
+  return 0
 }

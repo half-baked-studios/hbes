@@ -23,4 +23,12 @@ hbes_node() {
   fnm default lts-latest >/dev/null 2>&1 || true
   command -v node >/dev/null 2>&1 && log "node: $(node --version)"
   warn "fnm is per-user; add its shell hook (see 'fnm env', or the dotfiles module)."
+  return 0
+}
+
+hbes_node_down() {
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then log "[dry-run] would remove fnm + ~/.local/share/fnm"; return 0; fi
+  rm -rf "${HOME}/.local/share/fnm" "${HOME}/.fnm" 2>/dev/null || true
+  log "removed fnm and its node versions (~/.local/share/fnm)."
+  return 0
 }

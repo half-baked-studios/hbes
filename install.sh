@@ -16,6 +16,7 @@
 #   ./install.sh --profile std    install a named bundle
 #   ./install.sh --config FILE    drive the run from an hbes.toml
 #   ./install.sh --dry-run        show what would happen, change nothing
+#   ./install.sh --backports      (Debian) prefer newer packages from backports
 #   ./install.sh --skip-installed skip modules already in the lockfile
 #   ./install.sh --status         show what the lockfile recorded
 #   ./install.sh --uninstall [m]  revert modules (dotfiles fully; apt left alone)
@@ -32,6 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 LOCKFILE="${SCRIPT_DIR}/hbes.lock"
 DRY_RUN=0
+HBES_BACKPORTS=0; HBES_BACKPORTS_SUITE=""
 
 # markers that bound an hbes-managed block inside a config file
 HBES_MARK_BEGIN=">>> hbes >>>"
@@ -50,10 +52,10 @@ step() { printf '\n%s==>%s %s%s%s\n' "$c_grn" "$c_reset" "$c_bold" "$*" "$c_rese
 # sets HBES_OS (linux/macos), HBES_DISTRO (debian/rhel/arch/macos),
 # HBES_PM (apt/dnf/yum/pacman/brew), HBES_SELINUX (1 if enforcing/permissive).
 detect_platform() {
-  HBES_SELINUX=0; HBES_WSL=0
+  HBES_SELINUX=0; HBES_WSL=0; HBES_ID=""
   case "$(uname -s)" in
     Darwin)
-      HBES_DISTRO=macos; HBES_PM=brew
+      HBES_DISTRO=macos; HBES_PM=brew; HBES_ID=macos
       ;;
     Linux)
       # WSL is real Linux (apt/dnf just work) — flag it for the banner
@@ -65,6 +67,7 @@ detect_platform() {
         id="$(awk -F= '$1=="ID"{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
         like="$(awk -F= '$1=="ID_LIKE"{gsub(/"/,"",$2); print $2}' /etc/os-release 2>/dev/null)"
       fi
+      HBES_ID="$id"   # raw distro id: fedora vs rhel/centos/rocky/almalinux matters for EPEL
       case " $id $like " in
         *" debian "*|*" ubuntu "*)            HBES_DISTRO=debian; HBES_PM=apt ;;
         *" rhel "*|*" fedora "*|*" centos "*) HBES_DISTRO=rhel;   HBES_PM=dnf ;;
@@ -171,7 +174,7 @@ run_uninstall() {
     step "uninstall: ${name}"
     "hbes_${name}_down"
   else
-    warn "${name}: no automatic uninstall — apt packages stay (remove with apt yourself)."
+    warn "${name}: no uninstaller defined — nothing to revert."
   fi
 }
 
@@ -208,11 +211,35 @@ pkg_install() {
     return 0
   fi
   case "$HBES_PM" in
-    apt)    $SUDO apt-get install -y -qq "$@" ;;
+    apt)
+      if [ "${HBES_BACKPORTS:-0}" -eq 1 ] && [ -n "${HBES_BACKPORTS_SUITE:-}" ]; then
+        $SUDO apt-get install -y -qq -t "$HBES_BACKPORTS_SUITE" "$@"
+      else
+        $SUDO apt-get install -y -qq "$@"
+      fi
+      ;;
     dnf)    $SUDO dnf install -y "$@" ;;
     yum)    $SUDO yum install -y "$@" ;;
     pacman) $SUDO pacman -S --needed --noconfirm "$@" ;;
     brew)   brew install "$@" ;;
+    *)      err "no package manager set"; return 1 ;;
+  esac
+}
+
+# pkg_remove <pkgs...> — uninstall, conservatively: no purge, no dependency
+# cascade. removes only what's named; orphaned deps stay. (apt autoremove /
+# pacman -Rns are deliberately avoided — too easy to nuke something shared.)
+pkg_remove() {
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then
+    log "[dry-run] remove: $*"
+    return 0
+  fi
+  case "$HBES_PM" in
+    apt)    $SUDO apt-get remove -y -qq "$@" ;;
+    dnf)    $SUDO dnf remove -y "$@" ;;
+    yum)    $SUDO yum remove -y "$@" ;;
+    pacman) $SUDO pacman -R --noconfirm "$@" ;;
+    brew)   brew uninstall "$@" ;;
     *)      err "no package manager set"; return 1 ;;
   esac
 }
@@ -258,8 +285,54 @@ ensure_yay() {
   rm -rf "$tmp"
 }
 
-# platform_setup — distro-specific bootstrap run once before modules.
-platform_setup() {
+# ensure_epel — RHEL-likes (not Fedora) need EPEL for fzf/ripgrep/bat and
+# friends; Fedora ships them natively. enable it before the index sync.
+ensure_epel() {
+  [ "$HBES_ID" = fedora ] && return 0
+  if rpm -q epel-release >/dev/null 2>&1; then log "EPEL already enabled"; return 0; fi
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then log "[dry-run] would enable EPEL (epel-release)"; return 0; fi
+  log "enabling EPEL — RHEL-likes need it for fzf/ripgrep/bat etc."
+  $SUDO "$HBES_PM" install -y epel-release >/dev/null 2>&1 \
+    || warn "couldn't enable EPEL automatically — some packages may be missing."
+}
+
+# enable_backports — Debian only: add the <codename>-backports source so
+# pkg_install can pull newer versions with 'apt -t'. opt-in via --backports.
+enable_backports() {
+  local codename
+  codename="$(awk -F= '$1=="VERSION_CODENAME"{print $2}' /etc/os-release 2>/dev/null)"
+  if [ -z "$codename" ]; then
+    warn "can't determine Debian codename — skipping backports."
+    return 0
+  fi
+  HBES_BACKPORTS_SUITE="${codename}-backports"
+  if [ "${DRY_RUN:-0}" -eq 1 ]; then
+    log "[dry-run] would enable ${HBES_BACKPORTS_SUITE}"
+    return 0
+  fi
+  # ubuntu already ships -backports; debian proper needs the line
+  if [ "$HBES_ID" = debian ]; then
+    local list="/etc/apt/sources.list.d/hbes-backports.list"
+    if [ ! -f "$list" ]; then
+      echo "deb http://deb.debian.org/debian ${codename}-backports main contrib" \
+        | $SUDO tee "$list" >/dev/null
+      log "added ${HBES_BACKPORTS_SUITE} source"
+    fi
+  fi
+  log "backports enabled — packages prefer ${HBES_BACKPORTS_SUITE}"
+}
+
+# platform_setup_sources — enable extra repos BEFORE the index sync.
+platform_setup_sources() {
+  case "$HBES_DISTRO" in
+    rhel)   ensure_epel ;;
+    debian) [ "${HBES_BACKPORTS:-0}" -eq 1 ] && enable_backports ;;
+  esac
+  return 0
+}
+
+# platform_setup_post — setup that needs the freshly-synced index.
+platform_setup_post() {
   case "$HBES_DISTRO" in
     arch) ensure_yay ;;
     rhel)
@@ -505,6 +578,7 @@ main() {
       --config) shift; [ "$#" -gt 0 ] || { err "--config needs a path"; exit 1; }; config="$1" ;;
       --config=*) config="${1#--config=}" ;;
       --dry-run|-n) DRY_RUN=1 ;;
+      --backports) HBES_BACKPORTS=1 ;;
       --tui) want_tui=1 ;;
       --uninstall) uninstall=1 ;;
       --skip-installed) skip_installed=1 ;;
@@ -536,7 +610,12 @@ main() {
       warn "nothing to uninstall (no modules named, lockfile empty)."
       exit 0
     fi
-    [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be reverted."
+    if [ "$DRY_RUN" -eq 1 ]; then
+      warn "dry-run: nothing will actually be reverted."
+    else
+      warn "about to uninstall: ${selected[*]} (conservative — no purge, no dep cascade)"
+      ask "proceed" n || { log "aborted — nothing removed."; exit 0; }
+    fi
     for m in "${selected[@]}"; do
       run_uninstall "$m"
       unrecord_lock "$m"
@@ -607,8 +686,9 @@ main() {
   [ "$DRY_RUN" -eq 1 ] && warn "dry-run: nothing will actually be installed or written."
 
   step "syncing ${HBES_PM} index + platform setup"
+  platform_setup_sources
   pm_update
-  platform_setup
+  platform_setup_post
 
   for m in "${selected[@]}"; do
     run_module "$m"

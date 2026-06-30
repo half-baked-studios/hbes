@@ -5,6 +5,17 @@ is half baked, and so are the version bumps.
 
 [Keep a Changelog]: https://keepachangelog.com/
 
+## [0.6.1] - 2026-06-30
+
+### Added
+- dotfiles wires in per-user toolchains for new shells: sources `~/.cargo/env`
+  (rust) and adds fnm to `PATH` + `eval`s `fnm env` (node), if installed.
+
+### Fixed
+- `--help` no longer prints the script's shebang line.
+- bootstrap filters git's benign "tag is not a commit" note on pinned (tag)
+  clones, without swallowing real errors.
+
 ## [0.6.0] - 2026-06-30
 
 ### Added

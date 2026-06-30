@@ -30,7 +30,7 @@
 
 set -euo pipefail
 
-HBES_VERSION="0.6.0"
+HBES_VERSION="0.6.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 LOCKFILE="${SCRIPT_DIR}/hbes.lock"
@@ -593,7 +593,7 @@ main() {
       --status) show_status; exit 0 ;;
       --recommend) print_recommendations; echo; log "run again with --profile / module flags to install."; exit 0 ;;
       --list) list_modules; exit 0 ;;
-      -h|--help) grep '^#' "$0" | sed 's/^#//'; exit 0 ;;
+      -h|--help) grep '^#' "$0" | grep -v '^#!' | sed 's/^# \{0,1\}//'; exit 0 ;;
       *) warn "unknown arg: $1" ;;
     esac
     shift

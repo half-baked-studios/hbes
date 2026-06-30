@@ -22,6 +22,13 @@ alias gl='git log --oneline --graph --decorate -20'
 
 # a prompt that tells you who and where you are
 PS1='\[\e[32m\]\u@\h\[\e[0m\]:\[\e[34m\]\w\[\e[0m\]\$ '
+
+# language toolchains hbes installs per-user (rust/node) — wire them in if present
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+if [ -d "$HOME/.local/share/fnm" ]; then
+  export PATH="$HOME/.local/share/fnm:$PATH"
+  command -v fnm >/dev/null 2>&1 && eval "$(fnm env)"
+fi
 EOF
 }
 

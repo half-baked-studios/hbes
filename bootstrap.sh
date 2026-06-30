@@ -40,7 +40,10 @@ fetch() {
     else
       say "cloning ${HBES_REPO} -> ${HBES_DIR}"
       rm -rf "$HBES_DIR"
-      git clone --depth 1 --branch "$HBES_REF" --quiet "$HBES_REPO" "$HBES_DIR"
+      # filter git's benign "tag is not a commit" note on shallow tag clones,
+      # without swallowing real errors (exit status stays git's)
+      git clone --depth 1 --branch "$HBES_REF" --quiet "$HBES_REPO" "$HBES_DIR" \
+        2> >(grep -v 'is not a commit' >&2)
     fi
   elif command -v curl >/dev/null 2>&1; then
     say "no git — fetching tarball into ${HBES_DIR}"

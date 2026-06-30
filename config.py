@@ -45,10 +45,19 @@ def main():
     for mod, spec in (data.get("packages") or {}).items():
         if not isinstance(spec, dict):
             continue
+        # global add/remove for the module
         if spec.get("add"):
             print(f"export HBES_ADD_{mod}={shlex.quote(_words(spec['add']))}")
         if spec.get("remove"):
             print(f"export HBES_REMOVE_{mod}={shlex.quote(_words(spec['remove']))}")
+        # per-package-manager: any sub-table is keyed by pm (apt/dnf/pacman/brew)
+        for pm, pmspec in spec.items():
+            if pm in ("add", "remove") or not isinstance(pmspec, dict):
+                continue
+            if pmspec.get("add"):
+                print(f"export HBES_ADD_{mod}_{pm}={shlex.quote(_words(pmspec['add']))}")
+            if pmspec.get("remove"):
+                print(f"export HBES_REMOVE_{mod}_{pm}={shlex.quote(_words(pmspec['remove']))}")
 
 
 if __name__ == "__main__":

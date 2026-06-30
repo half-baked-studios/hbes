@@ -17,6 +17,8 @@
 #   ./install.sh --config FILE    drive the run from an hbes.toml
 #   ./install.sh --dry-run        show what would happen, change nothing
 #   ./install.sh --backports      (Debian) prefer newer packages from backports
+#   ./install.sh --yes            skip the uninstall confirmation prompt
+#   ./install.sh --version        print version and exit
 #   ./install.sh --skip-installed skip modules already in the lockfile
 #   ./install.sh --status         show what the lockfile recorded
 #   ./install.sh --uninstall [m]  revert modules (dotfiles fully; apt left alone)
@@ -28,12 +30,12 @@
 
 set -euo pipefail
 
-HBES_VERSION="0.5.0"
+HBES_VERSION="0.6.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 LOCKFILE="${SCRIPT_DIR}/hbes.lock"
 DRY_RUN=0
-HBES_BACKPORTS=0; HBES_BACKPORTS_SUITE=""
+HBES_BACKPORTS=0; HBES_BACKPORTS_SUITE=""; HBES_YES=0
 
 # markers that bound an hbes-managed block inside a config file
 HBES_MARK_BEGIN=">>> hbes >>>"
@@ -349,8 +351,12 @@ platform_setup_post() {
 # package names never contain spaces, so word-splitting the result is safe.
 overrides() {
   local mod="$1"; shift
+  # global overrides plus per-package-manager ones (HBES_ADD_<mod>_<pm>), so an
+  # hbes.toml can say [packages.toolchain.dnf] without touching other platforms.
   local add_var="HBES_ADD_${mod}" rm_var="HBES_REMOVE_${mod}"
-  local add="${!add_var:-}" remove="${!rm_var:-}"
+  local add_pm_var="HBES_ADD_${mod}_${HBES_PM}" rm_pm_var="HBES_REMOVE_${mod}_${HBES_PM}"
+  local add="${!add_var:-} ${!add_pm_var:-}"
+  local remove="${!rm_var:-} ${!rm_pm_var:-}"
   local p out=()
   for p in "$@"; do
     case " $remove " in *" $p "*) continue ;; esac
@@ -579,6 +585,8 @@ main() {
       --config=*) config="${1#--config=}" ;;
       --dry-run|-n) DRY_RUN=1 ;;
       --backports) HBES_BACKPORTS=1 ;;
+      --yes|-y) HBES_YES=1 ;;
+      --version|-V) printf 'hbes %s\n' "$HBES_VERSION"; exit 0 ;;
       --tui) want_tui=1 ;;
       --uninstall) uninstall=1 ;;
       --skip-installed) skip_installed=1 ;;
@@ -614,7 +622,9 @@ main() {
       warn "dry-run: nothing will actually be reverted."
     else
       warn "about to uninstall: ${selected[*]} (conservative — no purge, no dep cascade)"
-      ask "proceed" n || { log "aborted — nothing removed."; exit 0; }
+      if [ "$HBES_YES" -ne 1 ]; then
+        ask "proceed" n || { log "aborted — nothing removed."; exit 0; }
+      fi
     fi
     for m in "${selected[@]}"; do
       run_uninstall "$m"

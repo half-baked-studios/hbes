@@ -50,7 +50,7 @@ jobs:
         run: ./install.sh --base --backports
       - name: --uninstall reverts dotfiles
         run: |
-          echo y | ./install.sh --uninstall --dotfiles
+          ./install.sh --uninstall --dotfiles --yes
           ! grep -qF ">>> hbes >>>" "$HOME/.bashrc"
 
   install-fedora:

@@ -1,4 +1,4 @@
-# hbes — Half Baked Studio Ofiicial Enviourment Setup Tool
+# hbes — Half Baked Studio Official Environment Setup Tool
 
 [![ci](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml/badge.svg)](https://github.com/half-baked-studios/hbes/actions/workflows/ci.yml)
 &nbsp;
@@ -71,7 +71,7 @@ Piping a script into a shell makes you nervous? Good instinct — audit it:
 
 ```bash
 curl -fsSL .../bootstrap.sh | less                          # read it first
-HBES_REF=v0.5.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
+HBES_REF=v0.6.0 /bin/bash -c "$(curl -fsSL .../bootstrap.sh)" # pin a version
 curl -fsSL .../bootstrap.sh | bash -s -- --all --dry-run      # preview, install nothing
 ```
 
@@ -100,6 +100,7 @@ chmod +x install.sh
 ./install.sh --status        # what did hbes install here, and when
 ./install.sh --uninstall --dotfiles  # revert a module (removes its packages, asks first)
 ./install.sh --list          # list modules and profiles
+./install.sh --version       # print version and exit
 ```
 
 `--dry-run` composes with everything — it prints every package install and every
@@ -145,8 +146,11 @@ remove = ["vim"]
 ```
 
 `add`/`remove` adjust a module's package list, so you get the module's
-structure with your packages. (`--config` parses TOML with python3 — already
-there on most systems, and installed by the `python` module anyway.)
+structure with your packages. A sub-table named after a package manager
+(`[packages.toolchain.dnf]`, `[packages.toolchain.brew]`, …) applies **only on
+that platform** — handy when a package has a different name, or doesn't exist,
+elsewhere. (`--config` parses TOML with python3 — already there on most
+systems, and installed by the `python` module anyway.)
 
 ### interactive (TUI by default)
 
@@ -227,8 +231,20 @@ still half baked:
 
 - [x] uninstallers for every module (`*_down`, conservative package removal)
 - [x] RHEL EPEL auto-enable; Debian `--backports`
-- [x] tagged releases so `HBES_REF=vX.Y.Z` pins something real (`v0.5.0`)
-- [ ] per-platform package overrides in `hbes.toml` (today overrides are global)
+- [x] tagged releases so `HBES_REF=vX.Y.Z` pins something real (`v0.6.0`)
+- [x] per-platform package overrides in `hbes.toml` (`[packages.<mod>.<pm>]`)
+- [ ] we'll think of something — open an issue
+
+See [CHANGELOG.md](CHANGELOG.md) for what landed when.
+
+## credits
+
+Built and broken by half-baked-studios:
+
+- [@gahingwoo](https://github.com/gahingwoo)
+- [@747389](https://github.com/747389)
+- [@EGaming365](https://github.com/EGaming365)
+- [@Silverkeybord](https://github.com/Silverkeybord)
 
 ---
 

@@ -10,8 +10,16 @@ dry_run = false
 
 # per-package overrides: tweak what a module installs without editing its .sh
 [packages.toolchain]
-add    = ["mold", "ccache"]   # extra apt packages to pull in
+add    = ["mold", "ccache"]   # extra packages to pull in (all platforms)
 remove = ["valgrind"]         # drop ones you don't want
 
 [packages.base]
 remove = ["vim"]              # team neovim? drop vim from base
+
+# per-package-manager overrides: a sub-table named after the manager
+# (apt / dnf / yum / pacman / brew) only applies on that platform.
+[packages.toolchain.dnf]
+add    = ["lldb"]             # only on dnf systems
+
+[packages.toolchain.brew]
+add    = ["llvm@18"]          # macOS-only pin
